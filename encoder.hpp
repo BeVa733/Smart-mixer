@@ -6,6 +6,7 @@ class Encoder {
 private:
   static constexpr uint8_t DT = 3;
   static constexpr uint8_t CLK = 2;
+  static constexpr uint8_t SW = 8;
 
   uint8_t previousState = 0;
   int8_t stepAccumulator = 0;
@@ -14,6 +15,7 @@ public:
   void begin() {
     pinMode(CLK, INPUT_PULLUP);
     pinMode(DT, INPUT_PULLUP);
+    pinMode(SW, INPUT_PULLUP);
 
     previousState = readState();
   }
@@ -38,6 +40,8 @@ public:
 
     return 0;
   }
+
+  bool isButtonPressed() const { return digitalRead(SW) == LOW; }
 
 private:
   uint8_t readState() const {
