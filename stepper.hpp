@@ -19,13 +19,18 @@ public:
     digitalWrite(ENABLE, LOW);
   }
 
-  void step(int8_t direction) {
+  void step(int8_t direction) { step(direction, 500); }
+
+  void stepSlow(int8_t direction) { step(direction, 3000); }
+
+private:
+  void step(int8_t direction, unsigned int pulseDelayMicros) {
     digitalWrite(DIR, direction > 0 ? HIGH : LOW);
     delayMicroseconds(10);
 
     digitalWrite(STEP, HIGH);
-    delayMicroseconds(500);
+    delayMicroseconds(pulseDelayMicros);
     digitalWrite(STEP, LOW);
-    delayMicroseconds(500);
+    delayMicroseconds(pulseDelayMicros);
   }
 };
