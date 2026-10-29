@@ -4,15 +4,19 @@
 
 class Pump {
 private:
-  static constexpr uint8_t CONTROL = 7;
+  uint8_t controlPin;
 
 public:
+  explicit Pump(uint8_t pin) : controlPin(pin) {}
+
   void begin() {
-    pinMode(CONTROL, OUTPUT);
+    pinMode(controlPin, OUTPUT);
     stop();
   }
 
-  void setEnabled(bool enabled) { digitalWrite(CONTROL, enabled ? HIGH : LOW); }
+  void setEnabled(bool enabled) {
+    digitalWrite(controlPin, enabled ? HIGH : LOW);
+  }
 
   void stop() { setEnabled(false); }
 };
