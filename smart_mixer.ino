@@ -6,8 +6,6 @@
 #include "pump.hpp"
 #include "stepper.hpp"
 
-static constexpr float DEFAULT_PUMP1_ML_PER_SEC = 1.364f;
-static constexpr float DEFAULT_PUMP2_ML_PER_SEC = 1.197f;
 static constexpr unsigned long HOMING_TIMEOUT_MS = 30000;
 static constexpr unsigned long CALIBRATION_RUN_MS = 20000;
 static constexpr float CALIBRATION_CHECK_VOLUME_ML = 50.0f;
@@ -17,8 +15,8 @@ Button button(8);
 Display display;
 LimitSwitch upperLimit;
 PumpCalibration calibration;
-Pump pump1(7, DEFAULT_PUMP1_ML_PER_SEC);
-Pump pump2(10, DEFAULT_PUMP2_ML_PER_SEC);
+Pump pump1(7);
+Pump pump2(10);
 StepperMotor motor;
 
 enum class ControlMode { Menu, Pump1, Pump2, Actuator, Calibration };
@@ -122,6 +120,12 @@ void startCalibration() {
   stopPumps();
 
   Pump &pump = calibrationPump();
+  if (selectedCalibrationItem >= 4 && pump.flowRate() <= 0) {
+    Serial.println(F("Сначала сохраните результат замера 20 секунд"));
+    display.showCalibrationMissing();
+    return;
+  }
+
   calibrationStartedAt = millis();
   calibrationRunning = true;
   calibrationDurationMs = 0;
@@ -200,6 +204,11 @@ void handleSerialCommand() {
     Serial.print(F(": сохранено "));
     Serial.print(rate, 3);
     Serial.println(F(" мл/с"));
+    return;
+  }
+
+  if (pump->flowRate() <= 0) {
+    Serial.println(F("Сначала откалибруйте насос командой c1/c2"));
     return;
   }
 
@@ -291,7 +300,7 @@ void setup(void) {
   Serial.setTimeout(20);
   pinMode(LED_BUILTIN, OUTPUT);
 
-  calibration.begin();
+  const bool calibrationLoaded = calibration.begin();
   pump1.setFlowRate(calibration.pump1MlPerSecond);
   pump2.setFlowRate(calibration.pump2MlPerSecond);
 
@@ -309,6 +318,9 @@ void setup(void) {
   Serial.print(F("Калибровка P2: "));
   Serial.print(pump2.flowRate(), 3);
   Serial.println(F(" мл/с"));
+  if (!calibrationLoaded) {
+    Serial.println(F("Калибровка не найдена в EEPROM; выполните замер 20 секунд"));
+  }
 
   Serial.println(F("Начинаю homing вверх"));
   display.showHoming();

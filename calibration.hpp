@@ -7,17 +7,19 @@ struct PumpCalibration {
   static constexpr uint32_t MAGIC = 0x534D4958UL;
   static constexpr int EEPROM_ADDRESS = 0;
 
-  float pump1MlPerSecond = 1.364f;
-  float pump2MlPerSecond = 1.197f;
+  float pump1MlPerSecond = 0.0f;
+  float pump2MlPerSecond = 0.0f;
 
-  void begin() {
+  bool begin() {
     PumpCalibration stored;
     EEPROM.get(EEPROM_ADDRESS, stored);
 
     if (stored.isValid()) {
       *this = stored;
+      return true;
     } else {
-      save();
+      magic = 0;
+      return false;
     }
   }
 
@@ -33,8 +35,8 @@ struct PumpCalibration {
 
 private:
   bool isValid() const {
-    return magic == MAGIC && validRate(pump1MlPerSecond) &&
-           validRate(pump2MlPerSecond);
+    return magic == MAGIC && (validRate(pump1MlPerSecond) ||
+                              validRate(pump2MlPerSecond));
   }
 
   static bool validRate(float rate) {

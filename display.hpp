@@ -103,6 +103,14 @@ public:
     finish();
   }
 
+  void showCalibrationMissing() {
+    clear();
+    line(16, "NO CALIBRATION");
+    line(34, "RUN 20 SEC TEST");
+    line(52, "THEN SEND c1/c2");
+    finish();
+  }
+
   void showCalibrationCheck(uint8_t pumpNumber, float rate) {
     char value[24];
     clear();
