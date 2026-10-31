@@ -18,5 +18,11 @@ public:
     digitalWrite(controlPin, enabled ? HIGH : LOW);
   }
 
+  void setFlowRate(float flowMlPerSecond) {
+    if (flowMlPerSecond > 0) {
+      mlPerSecond = flowMlPerSecond;
+    }
+  }
+
   void stop() { setEnabled(false); }
 };
