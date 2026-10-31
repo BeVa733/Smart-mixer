@@ -5,7 +5,7 @@
 12 В через MOSFET-модули.
 
 Актуальные схемы подключений и инструкция загрузки находятся в файлах
-[`CONNECTIONS.md`](CONNECTIONS.md) и [`UPLOAD.md`](UPLOAD.md).
+[`CONNECTIONS.md`](instructions/CONNECTIONS.md) и [`UPLOAD.md`](instructions/UPLOAD.md).
 
 ## Комплектующие
 
