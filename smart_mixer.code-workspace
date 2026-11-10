@@ -1,0 +1,7 @@
+{
+  "folders": [
+    { "name": "Smart Mixer", "path": "." },
+    { "name": "Arduino · motion", "path": "motion_controller" },
+    { "name": "ESP32 · display", "path": "display_controller" }
+  ]
+}

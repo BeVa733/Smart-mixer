@@ -1,33 +1,55 @@
-# Smart Mixer — краткая инструкция
+# Smart Mixer
 
-Тестовый стенд проекта автоматизированного приготовления напитков. Arduino
-управляет шаговым двигателем через A4988 и двумя перистальтическими насосами
-12 В через MOSFET-модули.
+Система автоматизированного приготовления напитков с двумя контроллерами.
+Arduino UNO R4 Minima управляет шаговым приводом через TMC2209 и двумя
+перистальтическими насосами 12 В через MOSFET-модули. Elecrow CrowPanel ESP32-S3
+7″ Basic Rev3 выводит сенсорный интерфейс на LVGL.
 
-Актуальные схемы подключений и инструкция загрузки находятся в файлах
-[`CONNECTIONS.md`](instructions/CONNECTIONS.md) и [`UPLOAD.md`](instructions/UPLOAD.md).
+Сейчас Arduino управляется через USB Serial, а CrowPanel запускает тестовый
+экран с кнопкой. Обмен командами между контроллерами по UART ещё не реализован.
 
-## Комплектующие
+## Структура
 
-- Arduino UNO R4 Minima;
-- энкодер KY-040 с кнопкой;
-- драйвер шагового двигателя A4988 и шаговый двигатель;
-- перистальтический насос 12 В;
-- MOSFET-модуль с выводами `VIN`, `OUT`, `GND`, `TRIG/PWM`;
-- блок питания 12 В;
-- защитный диод для насоса;
-- электролитический конденсатор `100 мкФ`.
+```text
+motion_controller/          PlatformIO-проект Arduino UNO R4 Minima
+  platformio.ini           плата, сборка, DFU-загрузка и USB Serial
+  src/main.cpp             управление механизмами и Serial-команды
+  include/                 насосы, привод, энкодер, концевик и EEPROM
+display_controller/         PlatformIO-проект CrowPanel ESP32-S3 Rev3
+  platformio.ini           настройки ESP32-S3 и LVGL
+  src/main.cpp             RGB-дисплей, GT911 и тестовый интерфейс
+  include/lv_conf.h        конфигурация LVGL
+docs/                       подключения, загрузка, калибровка и архитектура
+smart_mixer.code-workspace  рабочая область VS Code/VSCodium для обеих прошивок
+```
 
-## Файлы проекта
+## Сборка и загрузка
 
-- `smart_mixer.ino` — главный файл;
-- `button.hpp` — обработка короткого, двойного и длинного нажатия;
-- `display.hpp` — вывод меню и состояний на OLED SSD1306;
-- `encoder.hpp` — энкодер и кнопка;
-- `stepper.hpp` — управление A4988;
-- `pump.hpp` — управление насосом;
-- `CONNECTIONS.md` — актуальная схема подключений;
-- `UPLOAD.md` — краткая инструкция для нового участника;
-- `CALIBRATION.md` — процедура калибровки насосов;
-- `calibration.hpp` — хранение коэффициентов калибровки в EEPROM;
-- `instruction.md` — расширенная инструкция.
+Открыть `smart_mixer.code-workspace` и выбрать нужный проект в PlatformIO.
+Из корня репозитория доступны те же операции через CLI:
+
+```sh
+# Arduino UNO R4 Minima
+pio run -d motion_controller
+pio run -d motion_controller -t upload
+pio device monitor -d motion_controller
+
+# CrowPanel ESP32-S3
+pio run -d display_controller
+pio run -d display_controller -t upload
+pio device monitor -d display_controller
+```
+
+Если `pio` отсутствует в PATH, использовать
+`~/.platformio/penv/bin/platformio` вместо `pio`.
+
+## Документация
+
+- [Подключения](docs/CONNECTIONS.md).
+- [Загрузка и настройка портов](docs/UPLOAD.md).
+- [Калибровка насосов и высоты штока](docs/CALIBRATION.md).
+- [План архитектуры двух контроллеров](docs/DISPLAY_ARCHITECTURE.md).
+- [Прошивка дисплея](display_controller/README.md).
+- [Правила работы с RGB-дисплеем и LVGL](display_controller/DISPLAY_LVGL_RULES.md).
+
+OLED SSD1306 и его программный модуль удалены. U8g2 для сборки не требуется.
