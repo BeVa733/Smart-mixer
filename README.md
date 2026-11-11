@@ -20,6 +20,8 @@ display_controller/         PlatformIO-проект CrowPanel ESP32-S3 Rev3
   src/main.cpp             RGB-дисплей, GT911 и тестовый интерфейс
   include/lv_conf.h        конфигурация LVGL
 docs/                       подключения, загрузка, калибровка и архитектура
+shared/SmartMixerProtocol/  общий C++11-модуль формата пакетов и парсера
+tests/protocol/             тесты протокола на компьютере через CMake/CTest
 smart_mixer.code-workspace  рабочая область VS Code/VSCodium для обеих прошивок
 ```
 
@@ -46,9 +48,13 @@ pio device monitor -d display_controller
 ## Документация
 
 - [Подключения](docs/CONNECTIONS.md).
+- [Правила подключения и программирования UART CrowPanel](display_controller/UART_RULES.md).
 - [Загрузка и настройка портов](docs/UPLOAD.md).
 - [Калибровка насосов и высоты штока](docs/CALIBRATION.md).
 - [План архитектуры двух контроллеров](docs/DISPLAY_ARCHITECTURE.md).
+- [Спецификация протокола v1](docs/PROTOCOL.md).
+- [Этапы реализации протокола](docs/PROTOCOL_IMPLEMENTATION.md).
+- [Тесты протокола](docs/PROTOCOL_TESTS.md).
 - [Прошивка дисплея](display_controller/README.md).
 - [Правила работы с RGB-дисплеем и LVGL](display_controller/DISPLAY_LVGL_RULES.md).
 

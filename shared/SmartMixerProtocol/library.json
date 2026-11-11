@@ -1,0 +1,7 @@
+{
+  "name": "SmartMixerProtocol",
+  "version": "1.0.0",
+  "description": "Bounded ASCII frame codec for Smart Mixer UART protocol v1",
+  "frameworks": "*",
+  "platforms": "*"
+}
