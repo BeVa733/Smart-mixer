@@ -133,18 +133,25 @@ void MixerUi::dispatch(Action a, int p) {
     channelHandler_(channelContext_, static_cast<int>(lv_dropdown_get_selected(careChannel_)) + 1, name);
     return;
   }
-  if(a == Action::CarePrime || a == Action::WashSolution || a == Action::WashWater) {
+  if(a == Action::CalibratePrime || a == Action::PrimeArrived || a == Action::CarePrime ||
+     a == Action::WashSolution || a == Action::WashWater) {
     if(cooking_) { showNotice("Сначала завершите или отмените приготовление"); return; }
     int pump = static_cast<int>(lv_dropdown_get_selected(careChannel_)) + 1;
-    if(a == Action::CarePrime) { request({Action::Prime, pump, 0}); return; }
-    float ml = 0;
-    if(!washMl_.value(ml)) { showNotice("Введите объём промывки: 1-1000 мл"); return; }
-    pending_ = {Action::Dose, pump, ml};
-    char text[300];
-    snprintf(text, sizeof(text), a == Action::WashSolution ?
-      "%s\nОпустите входную трубку в моющий раствор, под выход поставьте пустую ёмкость.\nБудет прокачано %.0f мл. После раствора промойте канал чистой водой." :
-      "%s\nОпустите входную трубку в чистую воду, под выход поставьте пустую ёмкость.\nБудет прокачано %.0f мл.",
-      pumpName(pump).c_str(), ml);
+    if(a == Action::CalibratePrime) { request({Action::Prime, pump, 0}); return; }
+    if(a == Action::PrimeArrived) { request({Action::PrimeMeasured, pump, 0}); return; }
+    float line = primeTimes_[pump - 1];
+    if(line <= 0) { showNotice("Сначала откалибруйте прокачку этого насоса"); return; }
+    if(a == Action::CarePrime) { request({Action::RunFor, pump, line}); return; }
+    float passes = 0;
+    if(!washPasses_.value(passes)) { showNotice("Число прогонов трассы: 1-10"); return; }
+    float seconds = line * passes;
+    if(seconds > 600) { showNotice("Промывка дольше 600 с. Уменьшите число прогонов"); return; }
+    pending_ = {Action::RunFor, pump, seconds};
+    char text[320];
+    snprintf(text, sizeof(text), "%s\nОпустите входную трубку в %s, под выход поставьте пустую ёмкость.\n"
+      "Насос проработает %.1f с (%.0f x %.1f с трассы).%s", pumpName(pump).c_str(),
+      a == Action::WashSolution ? "моющий раствор" : "чистую воду", seconds, passes, line,
+      a == Action::WashSolution ? "\nПосле раствора промойте канал чистой водой." : "");
     askConfirmation(a == Action::WashSolution ? "Промывка раствором" : "Промывка водой", text);
     return;
   }
@@ -443,11 +450,13 @@ void MixerUi::createCarePage(lv_obj_t *screen) {
   button(care_, "Сохранить", 570, 0, 165, Action::SaveChannelName, 0, false);
   lv_obj_set_height(lv_obj_get_child(care_, -1), 44);
   channelMessage_ = label(care_, "", 0, 50, 735);
-  label(care_, "Прокачка — после замены ёмкости: подставьте стакан, запустите и остановите, когда жидкость пойдёт без пузырей.", 0, 76, 735);
-  button(care_, "Начать прокачку", 0, 124, 300, Action::CarePrime);
-  button(care_, "Жидкость пошла", 315, 124, 300, Action::Stop, 0, false);
-  label(care_, "Промывка: сначала моющим раствором, затем чистой водой. Объём, мл:", 0, 186, 735);
-  washMl_.create(care_, 0, 216, 1, 1000, 50);
+  label(care_, "Калибровка трассы (один раз): трасса пустая, трубка в жидкости. Калибровать, затем Жидкость пошла, когда жидкость появится на выходе.", 0, 76, 735);
+  button(care_, "Калибровать", 0, 124, 175, Action::CalibratePrime);
+  button(care_, "Жидкость пошла", 185, 124, 200, Action::PrimeArrived);
+  button(care_, "Прокачать", 395, 124, 165, Action::CarePrime);
+  primeInfo_ = label(care_, "", 572, 128, 165);
+  label(care_, "Промывка: сначала раствором, затем водой. Прогонов трассы:", 0, 186, 735);
+  washPasses_.create(care_, 0, 216, 1, 10, 2);
   button(care_, "Раствором", 235, 216, 160, Action::WashSolution);
   button(care_, "Водой", 405, 216, 150, Action::WashWater);
   button(care_, "Остановить насос", 565, 216, 170, Action::Stop, 0, false);
@@ -460,6 +469,17 @@ void MixerUi::careChannelChanged(lv_event_t *e) {
   auto *self = static_cast<MixerUi *>(lv_event_get_user_data(e));
   lv_textarea_set_text(self->channelName_, self->channels_[lv_dropdown_get_selected(self->careChannel_) ? 1 : 0].c_str());
   self->setChannelMessage("");
+  self->updatePrimeInfo();
+}
+void MixerUi::updatePrimeInfo() {
+  float line = primeTimes_[lv_dropdown_get_selected(careChannel_) ? 1 : 0];
+  char text[48];
+  if(line > 0) snprintf(text, sizeof(text), "Трасса: %.1f с", line);
+  else snprintf(text, sizeof(text), "Трасса: нет");
+  lv_label_set_text(primeInfo_, text);
+}
+void MixerUi::setPrimeTimes(float pump1, float pump2) {
+  primeTimes_[0] = pump1 > 0 ? pump1 : 0; primeTimes_[1] = pump2 > 0 ? pump2 : 0; updatePrimeInfo();
 }
 void MixerUi::refreshChannels() {
   static const char *const titles[] = {"НАСОС 1 / D8", "НАСОС 2 / D10"};
@@ -477,6 +497,7 @@ void MixerUi::refreshChannels() {
     lv_dropdown_set_selected(dropdown, selected);
   }
   lv_textarea_set_text(channelName_, channels_[lv_dropdown_get_selected(careChannel_) ? 1 : 0].c_str());
+  updatePrimeInfo();
   updateRecipeDetails();
 }
 void MixerUi::setChannelNames(const std::string &pump1, const std::string &pump2) {

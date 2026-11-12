@@ -61,6 +61,7 @@ int main(int argc, char **argv) {
   try {
     channels.load(); context.channelsWritable = true;
     ui.setChannelNames(channels.name(1), channels.name(2));
+    ui.setPrimeTimes(channels.primeTime(1), channels.primeTime(2));
   } catch(const std::exception &e) { ui.setChannelMessage(e.what()); }
   ui.setChannelHandler([](void *p, int pump, const std::string &name) {
     auto *ctx = static_cast<Context *>(p);
@@ -91,6 +92,17 @@ int main(int argc, char **argv) {
   bool previousCalibration = false;
   while(lv_display_get_next(nullptr)) {
     usb.poll();
+    int primedPump; float primeSeconds;
+    if(usb.takePrimeMeasurement(primedPump, primeSeconds)) {
+      char text[120];
+      try {
+        if(!context.channelsWritable) throw std::runtime_error("Файл каналов недоступен; время трассы не сохранено");
+        channels.savePrimeTime(primedPump, primeSeconds);
+        ui.setPrimeTimes(channels.primeTime(1), channels.primeTime(2));
+        snprintf(text, sizeof(text), "Насос %d: время трассы %.1f с сохранено", primedPump, primeSeconds);
+        ui.setChannelMessage(text);
+      } catch(const std::exception &e) { ui.setChannelMessage(e.what()); }
+    }
     if(usb.calibrating() != previousCalibration) {
       previousCalibration = usb.calibrating(); ui.setCalibrating(previousCalibration);
     }

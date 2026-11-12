@@ -51,6 +51,17 @@ public:
     setEnabled(true);
   }
 
+  // Run for a fixed time, independent of the flow-rate calibration.
+  void startFor(unsigned long durationMs) {
+    if (durationMs == 0) {
+      return;
+    }
+    doseDurationMs = durationMs;
+    doseStartedAt = millis();
+    dosing = true;
+    setEnabled(true);
+  }
+
   bool update() {
     if (dosing && millis() - doseStartedAt >= doseDurationMs) {
       stop();

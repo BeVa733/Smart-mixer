@@ -80,6 +80,7 @@ void printHelp() {
   Serial.println(F("  p1 on / p1 off    насос 1 постоянно вкл/выкл"));
   Serial.println(F("  p2 on / p2 off    насос 2 постоянно вкл/выкл"));
   Serial.println(F("  d1 50 / d2 50     дозировать 50 мл"));
+  Serial.println(F("  t1 12.5 / t2 8    насос работает заданное время, с"));
   Serial.println(F("  act               включить режим движения энкодером"));
   Serial.println(F("  a+ / a-           один шаг привода вверх/вниз"));
   Serial.println(F("  a 100 / a -100    выполнить указанное число шагов"));
@@ -317,6 +318,32 @@ void dosePump(uint8_t pumpNumber, float volumeMl) {
   Serial.print(F(" мл, "));
   Serial.print(pump->msForVolume(volumeMl));
   Serial.println(F(" мс"));
+}
+
+// Timed run for line priming and washing: t1 12.5 = pump 1 for 12.5 s.
+// Timed by Arduino, so a lost USB link cannot leave the pump running.
+void runPumpFor(uint8_t pumpNumber, float seconds) {
+  if (!homingReady) {
+    Serial.println(F("Нельзя включить насос до успешного home"));
+    return;
+  }
+  if ((pumpNumber != 1 && pumpNumber != 2) || !(seconds >= 0.1f) || seconds > 600.0f) {
+    Serial.println(F("Пример: t1 12.5 (0.1-600 с)"));
+    return;
+  }
+
+  stopCalibration(false);
+  stopHeightCalibration(false);
+  stopPumps();
+  Pump &pump = pumpNumber == 1 ? pump1 : pump2;
+  mode = pumpNumber == 1 ? ControlMode::Pump1 : ControlMode::Pump2;
+  pump.startFor(static_cast<unsigned long>(seconds * 1000.0f + 0.5f));
+
+  Serial.print(F("Насос "));
+  Serial.print(pumpNumber);
+  Serial.print(F(": работа "));
+  Serial.print(seconds, 1);
+  Serial.println(F(" с"));
 }
 
 void moveActuator(long steps) {
@@ -671,6 +698,10 @@ void handleSerialCommand() {
     const uint8_t pumpNumber = command[1] - '0';
     const float volumeMl = command.substring(2).toFloat();
     dosePump(pumpNumber, volumeMl);
+    return;
+  }
+  if (command.startsWith("t1 ") || command.startsWith("t2 ")) {
+    runPumpFor(command[1] - '0', command.substring(3).toFloat());
     return;
   }
   if (command.startsWith("c1") || command.startsWith("c2")) {

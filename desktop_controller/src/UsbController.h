@@ -18,6 +18,8 @@ public:
   bool cooking() const { return cooking_; }
   bool calibrating() const { return pumpCalibration_ || heightCalibration_; }
   int progress() const { return progress_; }
+  // A finished line-priming calibration, returned once.
+  bool takePrimeMeasurement(int &pump, float &seconds);
   const std::string &cookingMessage() const { return cookingMessage_; }
 private:
   int fd_ = -1;
@@ -26,6 +28,9 @@ private:
   bool cooking_ = false, homed_ = false, cookingLayered_ = true;
   bool pumpCalibration_ = false, heightCalibration_ = false;
   uint32_t operation_ = 0;
+  int primeCalPump_ = 0, measuredPump_ = 0;
+  uint64_t primeStartedAt_ = 0;
+  float measuredSeconds_ = 0;
   uint64_t lastHeartbeat_ = 0, lastReport_ = 0;
   int progress_ = 0;
   std::string cookingMessage_ = "Подключите Arduino и выполните поиск нуля в сервисном режиме";

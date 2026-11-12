@@ -101,6 +101,21 @@ int main() {
   check(sscanf(wire.c_str(), "mix %lu %u %u %u %u", &next, &ml1, &ml2, &profile, &layered) == 5 && layered == 1, "API 3 layered recipe");
   length = snprintf(report, sizeof(report), "MIX %lu DONE 100 NONE\n", next);
   write(master, report, length); usleep(2000); usb.poll(); check(!usb.cooking(), "layered DONE on API 3");
+  int primedPump = 0; float primedSeconds = 0;
+  usb.handle({Action::PrimeMeasured, 1, 0}, name);
+  check(readPeer(master) == "s\n" && !usb.takePrimeMeasurement(primedPump, primedSeconds), "no measurement without started priming");
+  usb.handle({Action::Prime, 1, 0}, name); check(readPeer(master) == "cal prime 1\n", "priming calibration wire");
+  usleep(300000); reportCalibration("Запущено: P1 PRIME");
+  usleep(700000);
+  usb.handle({Action::PrimeMeasured, 1, 0}, name); check(readPeer(master) == "s\n", "liquid arrival stops pump");
+  check(usb.takePrimeMeasurement(primedPump, primedSeconds) && primedPump == 1 &&
+        primedSeconds > 0.6f && primedSeconds < 1.0f, "line time counted from Arduino start acknowledgement");
+  check(!usb.takePrimeMeasurement(primedPump, primedSeconds), "measurement returned once");
+  usb.handle({Action::Prime, 2, 0}, name); readPeer(master);
+  reportCalibration("Запущено: P2 PRIME"); reportCalibration("Остановлено");
+  usb.handle({Action::PrimeMeasured, 2, 0}, name); readPeer(master);
+  check(!usb.takePrimeMeasurement(primedPump, primedSeconds), "stopped priming is not a measurement");
+  usb.handle({Action::RunFor, 2, 12.5f}, name); check(readPeer(master) == "t2 12.5\n", "timed run wire");
   usb.handle({Action::Disconnect, 0, 0}, name);
   check(readPeer(master) == "s\n", "disconnect best effort stop");
   check(!usb.connected(), "disconnected");
@@ -108,9 +123,15 @@ int main() {
   check(readPeer(master) == "status\n", "reconnect must not replay dose");
   check(!usb.working(), "reconnect needs fresh identification");
   check(!usb.recipeReady(), "reconnect forgets old capability");
+  usb.handle({Action::Connect, 0, 0}, name); readPeer(master);
+  reportCalibration("Homing: готов"); reportCalibration("MIX_API 2");
+  usb.handle({Action::RunFor, 1, 5}, name);
+  check(readPeer(master).empty(), "timed run needs API 3 firmware");
+  usb.handle({Action::Disconnect, 0, 0}, name); readPeer(master);
   check(UsbController::encode({Action::HeightShow, 0, 0}) == "hcal show" &&
         UsbController::encode({Action::HeightClear, 0, 0}) == "hcal clear", "common height commands have no pump selector");
   for(auto c : {Command{Action::Move, 0, 651}, Command{Action::Dose, 3, 5},
+                Command{Action::RunFor, 1, 0}, Command{Action::RunFor, 1, 601}, Command{Action::RunFor, 3, 5},
                 Command{Action::Dose, 1, NAN}, Command{Action::SaveRate, 1, 0}}) {
     bool rejected = false;
     try { UsbController::encode(c); } catch(const std::exception &) { rejected = true; }

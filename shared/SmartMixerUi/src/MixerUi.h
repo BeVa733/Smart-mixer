@@ -13,7 +13,11 @@ enum class Action { Connect, Disconnect, Status, Stop, Home, Encoder, Move,
                     MainMenu, Service, Recipes, NewRecipe, EditRecipe, SaveRecipe,
                     RemoveRecipe, PrepareRecipe,
                     // Priming and washing page (user maintenance, not service).
-                    Care, CarePrime, WashSolution, WashWater, SaveChannelName };
+                    Care, CarePrime, WashSolution, WashWater, SaveChannelName,
+                    // Line priming calibration: start, "liquid arrived" (adapter measures time).
+                    CalibratePrime, PrimeArrived, PrimeMeasured,
+                    // Run a pump for value seconds (Arduino-timed).
+                    RunFor };
 struct Command { Action action; int pump; float value; };
 typedef void (*CommandHandler)(void *, const Command &);
 // Ingredient name of a physical pump (1 or 2); empty name means "not set".
@@ -37,6 +41,8 @@ public:
   void setChannelNames(const std::string &pump1, const std::string &pump2);
   void setChannelHandler(ChannelHandler handler, void *context);
   void setChannelMessage(const char *message);
+  // Calibrated time to fill the line, seconds; 0 = not calibrated.
+  void setPrimeTimes(float pump1, float pump2);
   lv_obj_t *recipeEditorRoot() const { return editor_; }
   void setRecipes(const std::vector<Recipe> &recipes);
   void setRecipeHandler(RecipeHandler handler, void *context);
@@ -66,7 +72,9 @@ private:
   lv_obj_t *pumpTitles_[2]{}, *editorPumpLabels_[2]{};
   lv_obj_t *care_ = nullptr, *careChannel_ = nullptr, *channelName_ = nullptr;
   lv_obj_t *careStatus_ = nullptr, *careReply_ = nullptr, *channelMessage_ = nullptr;
-  NumericInput washMl_;
+  NumericInput washPasses_;
+  lv_obj_t *primeInfo_ = nullptr;
+  float primeTimes_[2]{};
   std::string channels_[2];
   ChannelHandler channelHandler_ = nullptr;
   void *channelContext_ = nullptr;
@@ -93,6 +101,7 @@ private:
   std::string pumpName(int pump) const;
   void askConfirmation(const char *title, const char *text);
   static void careChannelChanged(lv_event_t *);
+  void updatePrimeInfo();
   void updateRecipeDetails();
   const Recipe *selectedRecipe() const;
   static void recipeSelected(lv_event_t *);

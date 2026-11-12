@@ -9,6 +9,8 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
 
 using smart_mixer::Recipe;
 void RecipeStore::load() {
@@ -97,22 +99,44 @@ void RecipeStore::remove(uint32_t id) {
 void ChannelStore::load() {
   std::ifstream in(path_);
   if(!in) {
-    if(access(path_.c_str(), F_OK) != 0 && errno == ENOENT) { names_[0].clear(); names_[1].clear(); return; }
+    if(access(path_.c_str(), F_OK) != 0 && errno == ENOENT) {
+      names_[0].clear(); names_[1].clear(); primeTimes_[0] = primeTimes_[1] = 0; return;
+    }
     throw std::runtime_error("Не удалось открыть файл каналов");
   }
-  std::string line, loaded[2]; std::getline(in, line);
-  if(line != "SMART_MIXER_CHANNELS 1") throw std::runtime_error("Неизвестный формат файла каналов");
+  std::string line, loaded[2]; float times[2] = {0, 0}; std::getline(in, line);
+  // v1: "N name"; v2: "N seconds name".
+  bool withTime = line == "SMART_MIXER_CHANNELS 2";
+  if(!withTime && line != "SMART_MIXER_CHANNELS 1") throw std::runtime_error("Неизвестный формат файла каналов");
   bool seen[2] = {false, false};
   while(std::getline(in, line)) {
-    if(line.size() < 2 || (line[0] != '1' && line[0] != '2') || line[1] != ' ' || line.size() > 2 + 48)
+    if(line.size() < 2 || (line[0] != '1' && line[0] != '2') || line[1] != ' ' || line.size() > 2 + 16 + 48)
       throw std::runtime_error("Повреждён файл каналов");
     int index = line[0] - '1';
     if(seen[index]) throw std::runtime_error("Повреждён файл каналов");
-    seen[index] = true; loaded[index] = line.substr(2);
-    for(unsigned char c : loaded[index]) if(c < 32 || c == 127) throw std::runtime_error("Повреждён файл каналов");
+    seen[index] = true;
+    std::string rest = line.substr(2);
+    if(withTime) {
+      auto space = rest.find(' ');
+      if(space == std::string::npos || space == 0) throw std::runtime_error("Повреждён файл каналов");
+      std::string number = rest.substr(0, space);
+      char *end = nullptr; double value = strtod(number.c_str(), &end);
+      if(!end || *end || !(value >= 0) || value > 300) throw std::runtime_error("Повреждён файл каналов");
+      times[index] = static_cast<float>(value); rest = rest.substr(space + 1);
+    }
+    if(rest.size() > 48) throw std::runtime_error("Повреждён файл каналов");
+    for(unsigned char c : rest) if(c < 32 || c == 127) throw std::runtime_error("Повреждён файл каналов");
+    loaded[index] = rest;
   }
   if(!in.eof()) throw std::runtime_error("Ошибка чтения файла каналов");
   names_[0].swap(loaded[0]); names_[1].swap(loaded[1]);
+  primeTimes_[0] = times[0]; primeTimes_[1] = times[1];
+}
+void ChannelStore::commit(const std::string names[2], const float times[2]) {
+  char number[2][32];
+  for(int i = 0; i < 2; ++i) snprintf(number[i], sizeof(number[i]), "%.2f", times[i]);
+  writeFileAtomically(path_, std::string("SMART_MIXER_CHANNELS 2\n1 ") + number[0] + " " + names[0] +
+                             "\n2 " + number[1] + " " + names[1] + "\n");
 }
 void ChannelStore::save(int pump, const std::string &name) {
   if(pump != 1 && pump != 2) throw std::runtime_error("Насос должен быть 1 или 2");
@@ -120,6 +144,14 @@ void ChannelStore::save(int pump, const std::string &name) {
   for(unsigned char c : name) if(c < 32 || c == 127) throw std::runtime_error("Недопустимые символы в названии");
   std::string next[2] = {names_[0], names_[1]};
   next[pump - 1] = name;
-  writeFileAtomically(path_, "SMART_MIXER_CHANNELS 1\n1 " + next[0] + "\n2 " + next[1] + "\n");
+  commit(next, primeTimes_);
   names_[0].swap(next[0]); names_[1].swap(next[1]);
+}
+void ChannelStore::savePrimeTime(int pump, float seconds) {
+  if(pump != 1 && pump != 2) throw std::runtime_error("Насос должен быть 1 или 2");
+  if(!(seconds >= 0) || seconds > 300) throw std::runtime_error("Время трассы должно быть 0-300 с");
+  float next[2] = {primeTimes_[0], primeTimes_[1]};
+  next[pump - 1] = seconds;
+  commit(names_, next);
+  primeTimes_[0] = next[0]; primeTimes_[1] = next[1];
 }

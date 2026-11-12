@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <stdexcept>
 #include <limits>
+#include <cmath>
 
 using namespace smart_mixer;
 void check(bool value, const char *message) { if(!value) throw std::runtime_error(message); }
@@ -63,6 +64,20 @@ int main() {
   { std::ofstream corrupt(std::string(directory) + "/channels.txt"); corrupt << "SMART_MIXER_CHANNELS 1\n3 x\n"; }
   rejected = false; try { channels.load(); } catch(const std::exception &) { rejected = true; }
   check(rejected && channels.name(2) == "Апельсиновый сок", "damaged channel file keeps names in memory");
+  { std::ofstream v1(std::string(directory) + "/channels.txt"); v1 << "SMART_MIXER_CHANNELS 1\n1 Гренадин\n"; }
+  channels.load();
+  check(channels.name(1) == "Гренадин" && channels.primeTime(1) == 0 && channels.name(2).empty(), "v1 channel file without line times");
+  channels.savePrimeTime(2, 12.34f);
+  ChannelStore timed(std::string(directory) + "/channels.txt"); timed.load();
+  check(timed.name(1) == "Гренадин" && std::fabs(timed.primeTime(2) - 12.34f) < 0.001f && timed.primeTime(1) == 0,
+        "line time survives restart and keeps names");
+  timed.save(2, "Сок"); channels.load();
+  check(channels.name(2) == "Сок" && std::fabs(channels.primeTime(2) - 12.34f) < 0.001f, "renaming keeps line time");
+  rejected = false; try { channels.savePrimeTime(1, 301); } catch(const std::exception &) { rejected = true; }
+  check(rejected && channels.primeTime(1) == 0, "line time limit");
+  { std::ofstream bad(std::string(directory) + "/channels.txt"); bad << "SMART_MIXER_CHANNELS 2\n1 abc Имя\n"; }
+  rejected = false; try { channels.load(); } catch(const std::exception &) { rejected = true; }
+  check(rejected, "damaged line time rejected");
   unlink((std::string(directory) + "/channels.txt").c_str());
   unlink(path.c_str()); rmdir(directory);
 

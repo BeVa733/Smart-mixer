@@ -26,6 +26,7 @@ void UsbController::closePort() {
   if(fd_ >= 0) ::close(fd_);
   fd_ = -1; working_ = false; recipeApi_ = 0; homed_ = false; buffer_.clear();
   pumpCalibration_ = heightCalibration_ = false;
+  primeCalPump_ = 0; primeStartedAt_ = 0;
   if(cooking_) cookingMessage_ = "Связь потеряна. Проверьте остановку устройства";
   cooking_ = false;
   status_ = "State unavailable";
@@ -35,7 +36,7 @@ std::string UsbController::encode(const Command &c) {
   const bool pumpAction = c.action == Action::Dose || c.action == Action::PumpOn ||
     c.action == Action::PumpOff || c.action == Action::Prime || c.action == Action::Measure ||
     c.action == Action::CheckDose || c.action == Action::SaveRate ||
-    c.action == Action::HeightStart;
+    c.action == Action::HeightStart || c.action == Action::RunFor;
   if(pumpAction && c.pump != 1 && c.pump != 2) throw std::runtime_error("Invalid pump");
   if(!std::isfinite(c.value)) throw std::runtime_error("Invalid number");
   switch(c.action) {
@@ -60,6 +61,9 @@ std::string UsbController::encode(const Command &c) {
     snprintf(b, sizeof(b), "cal %s %d", c.action == Action::Prime ? "prime" : c.action == Action::Measure ? "20" : "50", c.pump); break;
   case Action::HeightStart:
     snprintf(b, sizeof(b), "hcal start %d", c.pump); break;
+  case Action::RunFor:
+    if(!(c.value >= 0.1f) || c.value > 600) throw std::runtime_error("Run time must be 0.1..600 s");
+    snprintf(b, sizeof(b), "t%d %.1f", c.pump, c.value); break;
   default: throw std::runtime_error("Action has no wire command");
   }
   return b;
@@ -98,11 +102,31 @@ void UsbController::handle(const Command &c, const char *port) {
       throw std::runtime_error("Working USB firmware not detected");
     if(cooking_ && c.action != Action::Status && c.action != Action::Stop)
       throw std::runtime_error("Сначала отмените приготовление");
+    if(c.action == Action::PrimeMeasured) {
+      // Time from Arduino's start acknowledgement to the operator's "liquid arrived".
+      bool started = primeStartedAt_ && primeCalPump_ == c.pump;
+      float seconds = started ? (nowMs() - primeStartedAt_) / 1000.0f : 0;
+      send("s");
+      primeCalPump_ = 0; primeStartedAt_ = 0;
+      if(!started) message_ = "Калибровка прокачки этого насоса не запущена";
+      else if(seconds < 0.5f || seconds > 300) message_ = "Время трассы вне 0.5-300 с; не сохранено";
+      else { measuredPump_ = c.pump; measuredSeconds_ = seconds; }
+      return;
+    }
+    if(c.action == Action::RunFor && recipeApi_ < 3)
+      throw std::runtime_error("Для прокачки по времени загрузите новую desktop_usb (MIX_API 3)");
     send(encode(c));
+    if(c.action == Action::Prime) { primeCalPump_ = c.pump; primeStartedAt_ = 0; }
   } catch(const std::exception &e) { message_ = e.what(); }
 }
 void UsbController::line(const std::string &s) {
   bool wasReady = recipeReady();
+  if(s.find("Запущено: ") == 0) {
+    if(primeCalPump_ && s == (primeCalPump_ == 1 ? "Запущено: P1 PRIME" : "Запущено: P2 PRIME")) primeStartedAt_ = nowMs();
+    else { primeCalPump_ = 0; primeStartedAt_ = 0; }
+  }
+  if(s == "Остановлено" || s == "Калибровка остановлена" || s.find("SMART MIXER:") == 0 ||
+     s.find("Сначала выполните home") == 0) { primeCalPump_ = 0; primeStartedAt_ = 0; }
   if(s.find("Запущено: ") == 0) { pumpCalibration_ = true; heightCalibration_ = false; }
   if(s.find("Замер завершён.") == 0 || s == "Калибровка остановлена") pumpCalibration_ = false;
   if(s.find("Начата калибровка высоты P") == 0 || s.find("Начата общая калибровка высоты") == 0) heightCalibration_ = true;
@@ -217,4 +241,9 @@ void UsbController::prepare(const smart_mixer::Recipe &r) {
   cooking_ = true; progress_ = 0; lastHeartbeat_ = lastReport_ = nowMs();
   message_ = "Приготовление: запрос отправлен";
   cookingMessage_ = "Ожидаю подтверждения Arduino";
+}
+bool UsbController::takePrimeMeasurement(int &pump, float &seconds) {
+  if(!measuredPump_) return false;
+  pump = measuredPump_; seconds = measuredSeconds_; measuredPump_ = 0;
+  return true;
 }
