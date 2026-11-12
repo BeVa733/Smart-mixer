@@ -52,6 +52,14 @@ int main() {
   reportCalibration("Остановлено"); check(!usb.calibrating(), "STOP acknowledgement clears calibration state");
   usb.handle({Action::Dose, 2, 5.5}, name);
   check(readPeer(master) == "d2 5.50\n", "exact dose wire mapping");
+  reportCalibration("P2: 0.000 мл/с, выключен");
+  usb.handle({Action::Dose, 2, 50}, name);
+  check(readPeer(master).empty() && usb.message().find("не откалиброван") != std::string::npos,
+        "uncalibrated pump dose is explained instead of silently refused");
+  check(usb.status().find("P2: 0.000") != std::string::npos, "pump rates shown in state");
+  usb.handle({Action::PumpOn, 2, 0}, name); check(readPeer(master) == "p2 on\n", "continuous run needs no calibration");
+  reportCalibration("Насос 2: сохранено 1.197 мл/с");
+  usb.handle({Action::Dose, 2, 50}, name); check(readPeer(master) == "d2 50.00\n", "dose allowed after saving rate");
   Recipe recipe; recipe.name = "Тестовый"; recipe.ml1 = 20; recipe.ml2 = 30; recipe.firstPump = 2;
   bool rejectedOldFirmware = false;
   try { usb.prepare(recipe); } catch(const std::exception &) { rejectedOldFirmware = true; }

@@ -62,6 +62,7 @@ private:
   bool calibrating_ = false;
   lv_obj_t *log_ = nullptr, *port_ = nullptr, *pump_ = nullptr;
   lv_obj_t *statusBox_ = nullptr, *logBox_ = nullptr;
+  lv_obj_t *dosingStatus_ = nullptr, *dosingReply_ = nullptr;
   NumericInput volume_[2], steps_, grams_;
   lv_obj_t *controls_[40]{};
   unsigned controlCount_ = 0;

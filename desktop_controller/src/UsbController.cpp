@@ -27,6 +27,7 @@ void UsbController::closePort() {
   fd_ = -1; working_ = false; recipeApi_ = 0; homed_ = false; buffer_.clear();
   pumpCalibration_ = heightCalibration_ = false;
   primeCalPump_ = 0; primeStartedAt_ = 0;
+  rates_[0] = rates_[1] = -1;
   if(cooking_) cookingMessage_ = "Связь потеряна. Проверьте остановку устройства";
   cooking_ = false;
   status_ = "State unavailable";
@@ -114,6 +115,12 @@ void UsbController::handle(const Command &c, const char *port) {
       else { measuredPump_ = c.pump; measuredSeconds_ = seconds; }
       return;
     }
+    // Dosing converts volume to time with the pump's flow rate; Arduino refuses a pump
+    // with rate 0, and that reply is easy to miss. Explain it before sending.
+    if((c.action == Action::Dose || c.action == Action::CheckDose) && (c.pump == 1 || c.pump == 2) &&
+       rates_[c.pump - 1] == 0)
+      throw std::runtime_error(std::string("Насос ") + char('0' + c.pump) +
+        " не откалиброван (0 мл/с): Калибровка - Насос " + char('0' + c.pump) + " - 20 сек - масса - Сохранить");
     if(c.action == Action::RunFor && recipeApi_ < 3)
       throw std::runtime_error("Для прокачки по времени загрузите новую desktop_usb (MIX_API 3)");
     send(encode(c));
@@ -122,6 +129,14 @@ void UsbController::handle(const Command &c, const char *port) {
 }
 void UsbController::line(const std::string &s) {
   bool wasReady = recipeReady();
+  {
+    int pump = 0; float rate = -1;
+    if(sscanf(s.c_str(), "P%d: %f", &pump, &rate) == 2 ||
+       sscanf(s.c_str(), "Калибровка P%d: %f", &pump, &rate) == 2 ||
+       sscanf(s.c_str(), "Насос %d: сохранено %f", &pump, &rate) == 2) {
+      if((pump == 1 || pump == 2) && rate >= 0) rates_[pump - 1] = rate;
+    }
+  }
   if(s.find("Запущено: ") == 0) {
     if(primeCalPump_ && s == (primeCalPump_ == 1 ? "Запущено: P1 PRIME" : "Запущено: P2 PRIME")) primeStartedAt_ = nowMs();
     else { primeCalPump_ = 0; primeStartedAt_ = 0; }
@@ -186,7 +201,8 @@ void UsbController::line(const std::string &s) {
   }
   if(recipeReady() && !wasReady && !cooking_) cookingMessage_ = "Arduino готова. Выберите рецепт и установите ёмкость";
   if(s.find("--- Состояние") == 0) status_.clear();
-  if(s.find("Homing:") == 0 || s.find("Верхний концевик:") == 0 || s.find("Положение привода:") == 0) {
+  if(s.find("Homing:") == 0 || s.find("Верхний концевик:") == 0 || s.find("Положение привода:") == 0 ||
+     s.find("P1: ") == 0 || s.find("P2: ") == 0) {
     if(status_.size() + s.size() > 700) status_.clear();
     status_ += s + "\n";
   }

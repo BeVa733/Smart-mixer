@@ -79,6 +79,11 @@ void MixerUi::create(CommandHandler handler, void *context) {
     button(pumps, "Выкл.", x + 120, 198, 110, Action::PumpOff, p);
   }
   label(pumps, "Следующий насос запускайте после завершения текущей порции.", 0, 266, 755);
+  // Feedback right here: Arduino may refuse a dose (no homing, pump not calibrated).
+  dosingStatus_ = label(pumps, "", 0, 294, 755);
+  lv_label_set_long_mode(dosingStatus_, LV_LABEL_LONG_DOT);
+  dosingReply_ = label(pumps, "", 0, 320, 755);
+  lv_label_set_long_mode(dosingReply_, LV_LABEL_LONG_DOT);
   label(motion, "Количество микрошагов", 0, 0, 755);
   steps_.create(motion, 0, 42, 1, 9999, 10);
   button(motion, "Вверх", 245, 42, 140, Action::Move, 1);
@@ -273,6 +278,7 @@ void MixerUi::setConnection(bool connected, bool working, const char *text) {
   (void)connected;
   working_ = working;
   lv_label_set_text(connection_, text);
+  if(dosingStatus_) lv_label_set_text(dosingStatus_, text);
   if(careStatus_) lv_label_set_text(careStatus_, working ? text :
     "Сначала: Сервисный режим, USB / Журнал — Подключить; затем Привод — Найти верхний ноль");
   for(unsigned i = 0; i < controlCount_; ++i) {
@@ -287,7 +293,7 @@ void MixerUi::setLog(const char *text) {
   bool atEnd = lv_obj_get_scroll_bottom(logBox_) <= 4;
   lv_label_set_text(log_, text);
   if(atEnd) { lv_obj_update_layout(logBox_); lv_obj_scroll_to_y(logBox_, 1000000, LV_ANIM_OFF); }
-  if(!careReply_) return;
+  if(!careReply_ || !dosingReply_) return;
   // Last Arduino reply, so priming/washing results are visible without the service log.
   std::string log = text, last;
   size_t end = log.size();
@@ -299,6 +305,7 @@ void MixerUi::setLog(const char *text) {
     end = start - 1;
   }
   lv_label_set_text(careReply_, last.empty() ? "" : ("Arduino: " + last).c_str());
+  lv_label_set_text(dosingReply_, last.empty() ? "" : ("Arduino: " + last).c_str());
 }
 void MixerUi::setPort(const char *text) { lv_textarea_set_text(port_, text); }
 const char *MixerUi::port() const { return lv_textarea_get_text(port_); }
