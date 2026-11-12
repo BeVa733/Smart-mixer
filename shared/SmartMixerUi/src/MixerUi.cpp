@@ -110,6 +110,9 @@ void MixerUi::create(CommandHandler handler, void *context) {
   button(cal, "Завершить уровни", 480, 190, 245, Action::HeightStop);
   button(cal, "Показать уровни", 0, 252, 225, Action::HeightShow);
   button(cal, "Стереть уровни", 240, 252, 225, Action::HeightClear);
+  // Shows whether each level point was saved or rejected by Arduino.
+  calReply_ = label(cal, "", 0, 312, 755);
+  lv_label_set_long_mode(calReply_, LV_LABEL_LONG_DOT);
   label(link, "USB-порт (Linux)", 0, 0, 240);
   port_ = lv_textarea_create(link); lv_obj_set_pos(port_, 0, 34); lv_obj_set_size(port_, 290, 46);
   lv_textarea_set_one_line(port_, true); lv_textarea_set_max_length(port_, 127);
@@ -304,7 +307,7 @@ void MixerUi::setLog(const char *text) {
   bool atEnd = lv_obj_get_scroll_bottom(logBox_) <= 4;
   lv_label_set_text(log_, text);
   if(atEnd) { lv_obj_update_layout(logBox_); lv_obj_scroll_to_y(logBox_, 1000000, LV_ANIM_OFF); }
-  if(!careReply_ || !dosingReply_) return;
+  if(!careReply_ || !dosingReply_ || !calReply_) return;
   // Last Arduino reply, so priming/washing results are visible without the service log.
   std::string log = text, last;
   size_t end = log.size();
@@ -317,6 +320,7 @@ void MixerUi::setLog(const char *text) {
   }
   lv_label_set_text(careReply_, last.empty() ? "" : ("Arduino: " + last).c_str());
   lv_label_set_text(dosingReply_, last.empty() ? "" : ("Arduino: " + last).c_str());
+  lv_label_set_text(calReply_, last.empty() ? "" : ("Arduino: " + last).c_str());
 }
 void MixerUi::setPort(const char *text) { lv_textarea_set_text(port_, text); }
 const char *MixerUi::port() const { return lv_textarea_get_text(port_); }
@@ -581,4 +585,15 @@ void MixerUi::setChannelNames(const std::string &pump1, const std::string &pump2
 void MixerUi::setChannelHandler(ChannelHandler h, void *context) { channelHandler_ = h; channelContext_ = context; }
 void MixerUi::setChannelMessage(const char *message) { lv_label_set_text(channelMessage_, message); }
 void MixerUi::showCare() { dispatch(Action::Care, 0); }
+void MixerUi::showHeightTable(const char *rows) {
+  auto *box = lv_msgbox_create(nullptr);
+  lv_obj_set_style_text_font(box, &mixer_font_16, 0);
+  lv_obj_set_width(box, 440);
+  lv_msgbox_add_title(box, "Таблица уровня");
+  lv_msgbox_add_text(box, rows);
+  auto *content = lv_msgbox_get_content(box);
+  lv_obj_set_style_max_height(content, 280, 0);
+  lv_obj_set_scroll_dir(content, LV_DIR_VER);
+  cancelButton(box, "Понятно");
+}
 }

@@ -124,6 +124,17 @@ int main() {
   usb.handle({Action::PrimeMeasured, 2, 0}, name); readPeer(master);
   check(!usb.takePrimeMeasurement(primedPump, primedSeconds), "stopped priming is not a measurement");
   usb.handle({Action::RunFor, 2, 12.5f}, name); check(readPeer(master) == "t2 12.5\n", "timed run wire");
+  std::string table;
+  usb.handle({Action::HeightShow, 0, 0}, name); check(readPeer(master) == "hcal show\n", "show levels wire");
+  reportCalibration("Общая таблица уровня:");
+  reportCalibration("  5 мл -> -900 микрошагов от верхнего концевика");
+  reportCalibration("  10 мл -> -880 микрошагов от верхнего концевика");
+  check(!usb.takeHeightTable(table), "table waits for the end of rows");
+  usleep(250000); usb.poll();
+  check(usb.takeHeightTable(table) && table == "5 мл -> -900 микрошагов\n10 мл -> -880 микрошагов", "height table collected");
+  check(!usb.takeHeightTable(table), "height table returned once");
+  reportCalibration("Общая таблица уровня:"); reportCalibration("  пока нет сохранённых точек"); reportCalibration("Остановлено");
+  check(usb.takeHeightTable(table) && table == "пока нет сохранённых точек", "empty table reported, ended by next line");
   usb.handle({Action::Encoder, 0, 0}, name); check(readPeer(master) == "act\n", "encoder mode on");
   usb.handle({Action::EncoderOff, 0, 0}, name); check(readPeer(master) == "act off\n", "encoder mode off");
   usb.handle({Action::Disconnect, 0, 0}, name);

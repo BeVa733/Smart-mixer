@@ -177,6 +177,9 @@ int main() {
   lv_obj_send_event(findButton(lv_layer_top(), "Выполнить"), LV_EVENT_CLICKED, nullptr);
   check(commands.back().action == Action::SaveRate && commands.back().pump == 2 &&
         std::fabs(commands.back().value - 23.94f) < 0.001f, "pump 2 rate from 30.10 saved");
+  ui.showHeightTable("5 мл -> -900 микрошагов\n10 мл -> -880 микрошагов"); pump();
+  auto *tableOk = findButton(lv_layer_top(), "Понятно"); check(tableOk, "height table window");
+  lv_obj_send_event(tableOk, LV_EVENT_CLICKED, nullptr); pump();
   // Priming and washing page.
   std::vector<std::pair<int, std::string>> names;
   ui.setChannelHandler([](void *p, int pump, const std::string &name) {

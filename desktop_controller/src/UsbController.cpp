@@ -28,6 +28,7 @@ void UsbController::closePort() {
   pumpCalibration_ = heightCalibration_ = false;
   primeCalPump_ = 0; primeStartedAt_ = 0;
   rates_[0] = rates_[1] = -1;
+  collectingTable_ = tableReady_ = false;
   if(cooking_) cookingMessage_ = "Связь потеряна. Проверьте остановку устройства";
   cooking_ = false;
   status_ = "State unavailable";
@@ -132,6 +133,16 @@ void UsbController::handle(const Command &c, const char *port) {
 }
 void UsbController::line(const std::string &s) {
   bool wasReady = recipeReady();
+  // "hcal show": a header and indented rows; there is no end marker.
+  if(s == "Общая таблица уровня:") { heightTable_.clear(); collectingTable_ = true; tableReady_ = false; tableAt_ = nowMs(); }
+  else if(collectingTable_ && s.compare(0, 2, "  ") == 0) {
+    std::string row = s.substr(2);
+    const std::string tail = " от верхнего концевика";
+    if(row.size() > tail.size() && row.compare(row.size() - tail.size(), tail.size(), tail) == 0)
+      row.erase(row.size() - tail.size());
+    heightTable_ += row + "\n"; tableAt_ = nowMs();
+  }
+  else if(collectingTable_) { collectingTable_ = false; tableReady_ = true; }
   {
     int pump = 0; float rate = -1;
     if(sscanf(s.c_str(), "P%d: %f", &pump, &rate) == 2 ||
@@ -232,6 +243,7 @@ void UsbController::poll() {
     }
     if(buffer_.size() > 4096) { buffer_.clear(); message_ = "USB line too long"; }
   }
+  if(collectingTable_ && nowMs() - tableAt_ >= 200) { collectingTable_ = false; tableReady_ = true; }
   if(cooking_) {
     uint64_t now = nowMs();
     try {
@@ -265,5 +277,12 @@ void UsbController::prepare(const smart_mixer::Recipe &r) {
 bool UsbController::takePrimeMeasurement(int &pump, float &seconds) {
   if(!measuredPump_) return false;
   pump = measuredPump_; seconds = measuredSeconds_; measuredPump_ = 0;
+  return true;
+}
+bool UsbController::takeHeightTable(std::string &table) {
+  if(!tableReady_) return false;
+  tableReady_ = false;
+  table = heightTable_.empty() ? "пока нет сохранённых точек" : heightTable_;
+  if(!table.empty() && table.back() == '\n') table.pop_back();
   return true;
 }

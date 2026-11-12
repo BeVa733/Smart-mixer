@@ -20,6 +20,8 @@ public:
   int progress() const { return progress_; }
   // A finished line-priming calibration, returned once.
   bool takePrimeMeasurement(int &pump, float &seconds);
+  // Height table received after "hcal show", returned once.
+  bool takeHeightTable(std::string &table);
   const std::string &cookingMessage() const { return cookingMessage_; }
 private:
   int fd_ = -1;
@@ -31,6 +33,9 @@ private:
   int primeCalPump_ = 0, measuredPump_ = 0;
   // Flow rates reported by Arduino, ml/s; negative = not reported yet.
   float rates_[2] = {-1, -1};
+  std::string heightTable_;
+  bool collectingTable_ = false, tableReady_ = false;
+  uint64_t tableAt_ = 0;
   uint64_t primeStartedAt_ = 0;
   float measuredSeconds_ = 0;
   uint64_t lastHeartbeat_ = 0, lastReport_ = 0;

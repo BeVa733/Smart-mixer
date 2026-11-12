@@ -45,6 +45,8 @@ public:
   void setChannelMessage(const char *message);
   // Calibrated time to fill the line, seconds; 0 = not calibrated.
   void setPrimeTimes(float pump1, float pump2);
+  // Common level table from Arduino, one "volume -> microsteps" row per line.
+  void showHeightTable(const char *rows);
   lv_obj_t *recipeEditorRoot() const { return editor_; }
   void setRecipes(const std::vector<Recipe> &recipes);
   void setRecipeHandler(RecipeHandler handler, void *context);
@@ -64,7 +66,7 @@ private:
   bool calibrating_ = false;
   lv_obj_t *log_ = nullptr, *port_ = nullptr, *pump_ = nullptr;
   lv_obj_t *statusBox_ = nullptr, *logBox_ = nullptr;
-  lv_obj_t *dosingStatus_ = nullptr, *dosingReply_ = nullptr;
+  lv_obj_t *dosingStatus_ = nullptr, *dosingReply_ = nullptr, *calReply_ = nullptr;
   NumericInput volume_[2], steps_, grams_;
   lv_obj_t *controls_[40]{};
   unsigned controlCount_ = 0;

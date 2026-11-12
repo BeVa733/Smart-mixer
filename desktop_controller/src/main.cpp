@@ -118,6 +118,8 @@ int main(int argc, char **argv) {
   bool previousCalibration = false;
   while(lv_display_get_next(nullptr)) {
     usb.poll();
+    std::string heightTable;
+    if(usb.takeHeightTable(heightTable)) ui.showHeightTable(heightTable.c_str());
     int primedPump; float primeSeconds;
     if(usb.takePrimeMeasurement(primedPump, primeSeconds)) {
       char text[120];
