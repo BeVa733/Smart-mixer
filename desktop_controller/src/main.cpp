@@ -101,6 +101,11 @@ int main(int argc, char **argv) {
   ui.setRecipeHandler([](void *p, smart_mixer::RecipeAction action, const smart_mixer::Recipe &recipe) {
     auto *ctx = static_cast<Context *>(p);
     try {
+      if(action == smart_mixer::RecipeAction::Check) {
+        std::string problem = ctx->usb->cookingProblem(recipe);
+        if(!problem.empty()) ctx->ui->rejectRecipe(problem.c_str());
+        return;
+      }
       if(action == smart_mixer::RecipeAction::Prepare) { ctx->usb->prepare(recipe); return; }
       if(!ctx->writable) throw std::runtime_error("Хранилище недоступно. Исправьте файл рецептов и перезапустите программу");
       if(action == smart_mixer::RecipeAction::Save) ctx->store->save(recipe);

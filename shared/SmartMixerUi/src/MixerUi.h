@@ -51,6 +51,8 @@ public:
   void setRecipes(const std::vector<Recipe> &recipes);
   void setRecipeHandler(RecipeHandler handler, void *context);
   void setRecipeMessage(const char *message);
+  // Called from the Check handler: cooking is not possible, show why.
+  void rejectRecipe(const char *reason);
   void setCooking(bool ready, bool busy, const char *message, int percent);
   void setCalibrating(bool active);
   lv_obj_t *serviceRoot() const { return tabs_; }
@@ -88,7 +90,7 @@ private:
   NumericInput recipeMl1_, recipeMl2_;
   std::vector<Recipe> recipes_;
   uint32_t editingId_ = 0;
-  bool recipeReady_ = false, cooking_ = false;
+  bool recipeReady_ = false, cooking_ = false, recipeRejected_ = false;
   Recipe pendingRecipe_;
   RecipeAction pendingRecipeAction_ = RecipeAction::Prepare;
   RecipeHandler recipeHandler_ = nullptr;

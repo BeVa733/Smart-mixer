@@ -19,6 +19,7 @@ inline bool validRecipe(const Recipe &r) {
   for(unsigned char c : r.name) if(c < 32 || c == 127) return false;
   return true;
 }
-enum class RecipeAction { Save, Remove, Prepare };
+// Check: before the confirmation the adapter may call MixerUi::rejectRecipe with a reason.
+enum class RecipeAction { Save, Remove, Prepare, Check };
 typedef void (*RecipeHandler)(void *, RecipeAction, const Recipe &);
 }

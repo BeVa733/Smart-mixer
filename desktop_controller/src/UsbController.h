@@ -14,6 +14,8 @@ public:
   const std::string &log() const { return log_; }
   static std::string encode(const smart_mixer::Command &);
   void prepare(const smart_mixer::Recipe &recipe);
+  // Why this recipe cannot be cooked now, with what to do; empty if nothing known prevents it.
+  std::string cookingProblem(const smart_mixer::Recipe &recipe) const;
   bool recipeReady() const { return working_ && recipeApi_ >= 2 && homed_ && !calibrating(); }
   bool cooking() const { return cooking_; }
   bool calibrating() const { return pumpCalibration_ || heightCalibration_; }
@@ -34,7 +36,10 @@ private:
   // Flow rates reported by Arduino, ml/s; negative = not reported yet.
   float rates_[2] = {-1, -1};
   std::string heightTable_;
-  bool collectingTable_ = false, tableReady_ = false;
+  bool collectingTable_ = false, tableReady_ = false, tableRequested_ = false;
+  // Level table as known from Arduino replies (hcal show / saved points / clear).
+  bool tableKnown_ = false, tableQueried_ = false;
+  std::vector<std::pair<int, int>> levels_, collectedLevels_;
   uint64_t tableAt_ = 0;
   uint64_t primeStartedAt_ = 0;
   float measuredSeconds_ = 0;

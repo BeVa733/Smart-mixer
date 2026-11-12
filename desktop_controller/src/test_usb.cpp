@@ -69,6 +69,23 @@ int main() {
   const char capability[] = "MIX_API 2\n";
   write(master, capability, sizeof(capability) - 1); usleep(2000); usb.poll();
   check(usb.recipeReady(), "recipe capability detection");
+  check(readPeer(master) == "hcal show\n", "level table queried once in background");
+  check(usb.cookingProblem(recipe).empty(), "unknown table does not block; Arduino decides");
+  reportCalibration("Общая таблица уровня:"); reportCalibration("  5 мл -> -100 микрошагов от верхнего концевика");
+  std::string table;
+  usleep(250000); usb.poll(); check(!usb.takeHeightTable(table), "background table opens no window");
+  check(usb.cookingProblem(recipe).find("минимум 2") != std::string::npos, "one-point table explained");
+  reportCalibration("Сохранено в общей таблице: 40 мл -> -50 микрошагов");
+  check(usb.cookingProblem(recipe).find("больше последней точки") != std::string::npos, "recipe above table explained");
+  reportCalibration("Сохранено в общей таблице: 100 мл -> -10 микрошагов");
+  Recipe thinFirst = recipe; thinFirst.ml2 = 2;
+  check(usb.cookingProblem(thinFirst).find("Первый слой") != std::string::npos, "first layer below table explained");
+  thinFirst.layered = false;
+  check(usb.cookingProblem(thinFirst).find("MIX_API 3") != std::string::npos, "mixed mode on old firmware explained");
+  check(usb.cookingProblem(recipe).empty(), "valid recipe has no problem");
+  reportCalibration("Homing: не выполнен");
+  check(usb.cookingProblem(recipe).find("верхнего нуля") != std::string::npos, "missing homing explained");
+  reportCalibration("Homing: готов");
   usb.prepare(recipe); auto wire = readPeer(master);
   unsigned long operation; unsigned ml1, ml2, profile;
   check(sscanf(wire.c_str(), "mix %lu %u %u %u", &operation, &ml1, &ml2, &profile) == 4 &&
@@ -124,7 +141,6 @@ int main() {
   usb.handle({Action::PrimeMeasured, 2, 0}, name); readPeer(master);
   check(!usb.takePrimeMeasurement(primedPump, primedSeconds), "stopped priming is not a measurement");
   usb.handle({Action::RunFor, 2, 12.5f}, name); check(readPeer(master) == "t2 12.5\n", "timed run wire");
-  std::string table;
   usb.handle({Action::HeightShow, 0, 0}, name); check(readPeer(master) == "hcal show\n", "show levels wire");
   reportCalibration("Общая таблица уровня:");
   reportCalibration("  5 мл -> -900 микрошагов от верхнего концевика");
@@ -133,6 +149,7 @@ int main() {
   usleep(250000); usb.poll();
   check(usb.takeHeightTable(table) && table == "5 мл -> -900 микрошагов\n10 мл -> -880 микрошагов", "height table collected");
   check(!usb.takeHeightTable(table), "height table returned once");
+  usb.handle({Action::HeightShow, 0, 0}, name); readPeer(master);
   reportCalibration("Общая таблица уровня:"); reportCalibration("  пока нет сохранённых точек"); reportCalibration("Остановлено");
   check(usb.takeHeightTable(table) && table == "пока нет сохранённых точек", "empty table reported, ended by next line");
   usb.handle({Action::Encoder, 0, 0}, name); check(readPeer(master) == "act\n", "encoder mode on");
@@ -145,7 +162,7 @@ int main() {
   check(!usb.working(), "reconnect needs fresh identification");
   check(!usb.recipeReady(), "reconnect forgets old capability");
   usb.handle({Action::Connect, 0, 0}, name); readPeer(master);
-  reportCalibration("Homing: готов"); reportCalibration("MIX_API 2");
+  reportCalibration("Homing: готов"); reportCalibration("MIX_API 2"); readPeer(master);
   usb.handle({Action::RunFor, 1, 5}, name);
   check(readPeer(master).empty(), "timed run needs API 3 firmware");
   usb.handle({Action::EncoderOff, 0, 0}, name);

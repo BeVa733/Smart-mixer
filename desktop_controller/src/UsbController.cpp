@@ -9,6 +9,7 @@
 #include <cstring>
 #include <chrono>
 #include <random>
+#include <vector>
 
 using smart_mixer::Action;
 using smart_mixer::Command;
@@ -28,7 +29,8 @@ void UsbController::closePort() {
   pumpCalibration_ = heightCalibration_ = false;
   primeCalPump_ = 0; primeStartedAt_ = 0;
   rates_[0] = rates_[1] = -1;
-  collectingTable_ = tableReady_ = false;
+  collectingTable_ = tableReady_ = tableRequested_ = false;
+  tableKnown_ = tableQueried_ = false; levels_.clear();
   if(cooking_) cookingMessage_ = "Связь потеряна. Проверьте остановку устройства";
   cooking_ = false;
   status_ = "State unavailable";
@@ -129,20 +131,30 @@ void UsbController::handle(const Command &c, const char *port) {
       throw std::runtime_error("Для прокачки по времени загрузите новую desktop_usb (MIX_API 3)");
     send(encode(c));
     if(c.action == Action::Prime) { primeCalPump_ = c.pump; primeStartedAt_ = 0; }
+    if(c.action == Action::HeightShow) tableRequested_ = true;
   } catch(const std::exception &e) { message_ = e.what(); }
 }
 void UsbController::line(const std::string &s) {
   bool wasReady = recipeReady();
   // "hcal show": a header and indented rows; there is no end marker.
-  if(s == "Общая таблица уровня:") { heightTable_.clear(); collectingTable_ = true; tableReady_ = false; tableAt_ = nowMs(); }
+  if(s == "Общая таблица уровня:") {
+    heightTable_.clear(); collectedLevels_.clear(); collectingTable_ = true; tableReady_ = false; tableAt_ = nowMs();
+  }
   else if(collectingTable_ && s.compare(0, 2, "  ") == 0) {
     std::string row = s.substr(2);
+    int ml, steps;
+    if(sscanf(row.c_str(), "%d мл -> %d", &ml, &steps) == 2) collectedLevels_.push_back({ml, steps});
     const std::string tail = " от верхнего концевика";
     if(row.size() > tail.size() && row.compare(row.size() - tail.size(), tail.size(), tail) == 0)
       row.erase(row.size() - tail.size());
     heightTable_ += row + "\n"; tableAt_ = nowMs();
   }
-  else if(collectingTable_) { collectingTable_ = false; tableReady_ = true; }
+  else if(collectingTable_) { collectingTable_ = false; tableReady_ = true; levels_ = collectedLevels_; tableKnown_ = true; }
+  {
+    int ml, steps;
+    if(sscanf(s.c_str(), "Сохранено в общей таблице: %d мл -> %d", &ml, &steps) == 2) levels_.push_back({ml, steps});
+    if(s == "Общая таблица уровня очищена" || s.find("Начата общая калибровка высоты") == 0) { levels_.clear(); tableKnown_ = true; }
+  }
   {
     int pump = 0; float rate = -1;
     if(sscanf(s.c_str(), "P%d: %f", &pump, &rate) == 2 ||
@@ -200,6 +212,10 @@ void UsbController::line(const std::string &s) {
           error == "CALIBRATION_OR_DUPLICATE" ? "Проверьте таблицу высоты и объёмы рецепта. Повтор запрещён" :
           error == "LINK_TIMEOUT" ? "Потеря связи. Насосы и движение остановлены" :
           error == "BUSY" ? "Arduino занята другой операцией" :
+          error == "MOVE_TIMEOUT" ? "Шток не дошёл до цели за 30 с. Проверьте привод и питание" :
+          error == "UPPER_LIMIT" ? "Шток у края, но верхний концевик не сработал. Выполните поиск нуля" :
+          error == "UNEXPECTED_LIMIT" || error == "LIMIT_STUCK" ? "Неожиданно сработал верхний концевик. Проверьте концевик и выполните поиск нуля" :
+          error == "POSITION" ? "Положение штока вне диапазона 0...-1000. Выполните поиск нуля" :
           "Приготовление остановлено. Проверьте привод, концевик и калибровку";
       }
       else if(!cookingLayered_) cookingMessage_ = phase == "POSITIONING" ? "Выставляю шток у края рюмки" :
@@ -243,7 +259,14 @@ void UsbController::poll() {
     }
     if(buffer_.size() > 4096) { buffer_.clear(); message_ = "USB line too long"; }
   }
-  if(collectingTable_ && nowMs() - tableAt_ >= 200) { collectingTable_ = false; tableReady_ = true; }
+  if(collectingTable_ && nowMs() - tableAt_ >= 200) {
+    collectingTable_ = false; tableReady_ = true; levels_ = collectedLevels_; tableKnown_ = true;
+  }
+  // Learn the level table once recipe firmware is identified, without opening the window.
+  if(working_ && recipeApi_ >= 2 && !tableQueried_ && !collectingTable_) {
+    tableQueried_ = true;
+    try { send("hcal show", false); } catch(const std::exception &e) { message_ = e.what(); }
+  }
   if(cooking_) {
     uint64_t now = nowMs();
     try {
@@ -257,9 +280,9 @@ void UsbController::poll() {
   }
 }
 void UsbController::prepare(const smart_mixer::Recipe &r) {
-  if(!recipeReady() || cooking_ || !smart_mixer::validRecipe(r)) throw std::runtime_error("Arduino не готова к приготовлению");
-  if(!r.layered && recipeApi_ < 3)
-    throw std::runtime_error("Для рецепта «смешать» загрузите новую прошивку desktop_usb (MIX_API 3)");
+  std::string problem = cookingProblem(r);
+  if(!problem.empty()) throw std::runtime_error(problem);
+  if(!smart_mixer::validRecipe(r)) throw std::runtime_error("Рецепт заполнен неверно");
   uint32_t previous = operation_;
   do { operation_ = std::random_device{}(); } while(!operation_ || operation_ == previous);
   char command[100];
@@ -282,7 +305,48 @@ bool UsbController::takePrimeMeasurement(int &pump, float &seconds) {
 bool UsbController::takeHeightTable(std::string &table) {
   if(!tableReady_) return false;
   tableReady_ = false;
+  if(!tableRequested_) return false;  // background query: keep the data, no window
+  tableRequested_ = false;
   table = heightTable_.empty() ? "пока нет сохранённых точек" : heightTable_;
   if(!table.empty() && table.back() == '\n') table.pop_back();
   return true;
+}
+std::string UsbController::cookingProblem(const smart_mixer::Recipe &r) const {
+  if(fd_ < 0) return "Arduino не подключена.\nСервисный режим — USB / Журнал — Подключить.";
+  if(!working_) return "Прошивка Arduino не распознана (или загружена диагностическая).\nЗагрузите desktop_usb: pio run -d motion_controller -e desktop_usb -t upload";
+  if(recipeApi_ < 2) return "Прошивка не умеет готовить рецепты: нет MIX_API (это обычная сборка uno_r4_minima?).\n"
+                            "Загрузите desktop_usb: pio run -d motion_controller -e desktop_usb -t upload";
+  if(cooking_) return "Уже идёт приготовление.";
+  if(!homed_) return "Не выполнен поиск верхнего нуля.\nСервисный режим — Привод — Найти верхний ноль.";
+  if(pumpCalibration_) return "Идёт калибровка насоса (прокачка, 20 сек или 50 мл).\nДождитесь окончания или нажмите Стоп.";
+  if(heightCalibration_) return "Идёт калибровка уровней.\nНажмите Завершить уровни на вкладке Калибровка.";
+  if(!r.layered && recipeApi_ < 3)
+    return "Режим «Смешать у края» есть только в новой прошивке (MIX_API 3).\nЗагрузите новую desktop_usb или переключите рецепт на «Слоями».";
+  const unsigned volumes[2] = {r.ml1, r.ml2};
+  for(int p = 0; p < 2; ++p) {
+    if(volumes[p] && rates_[p] == 0) {
+      char text[200];
+      snprintf(text, sizeof(text), "Насос %d не откалиброван (0 мл/с).\nКалибровка — Насос %d — Данные 30.10 или замер 20 сек.", p + 1, p + 1);
+      return text;
+    }
+  }
+  if(tableKnown_) {
+    char text[260];
+    if(levels_.size() < 2) {
+      snprintf(text, sizeof(text), "В таблице уровней %u точ. — нужно минимум 2.\nКалибровка — Начать уровни, снять точки, Завершить уровни.",
+               static_cast<unsigned>(levels_.size()));
+      return text;
+    }
+    const unsigned total = r.ml1 + r.ml2, last = levels_.back().first, first = levels_.front().first;
+    if(total > last) {
+      snprintf(text, sizeof(text), "Рецепт %u мл больше последней точки таблицы уровней (%u мл).\nУменьшите объёмы или снимите уровни до большего объёма.", total, last);
+      return text;
+    }
+    const unsigned firstLayer = r.firstPump == 1 ? r.ml1 : r.ml2;
+    if(r.layered && r.ml1 && r.ml2 && firstLayer < first) {
+      snprintf(text, sizeof(text), "Первый слой %u мл меньше первой точки таблицы уровней (%u мл).\nУвеличьте первый слой или выберите «Смешать у края».", firstLayer, first);
+      return text;
+    }
+  }
+  return "";
 }

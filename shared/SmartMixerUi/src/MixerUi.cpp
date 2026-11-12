@@ -223,8 +223,11 @@ void MixerUi::dispatch(Action a, int p) {
   if(a == Action::RemoveRecipe || a == Action::PrepareRecipe) {
     auto *r = selectedRecipe();
     if(!r || cooking_ || !recipeHandler_) return;
-    if(a == Action::PrepareRecipe && !recipeReady_) {
-      setRecipeMessage("Для приготовления нужна готовая Arduino с поддержкой рецептов"); return;
+    if(a == Action::PrepareRecipe) {
+      // The adapter knows the hardware state; it explains a refusal instead of a grey button.
+      recipeRejected_ = false;
+      recipeHandler_(recipeContext_, RecipeAction::Check, *r);
+      if(recipeRejected_) return;
     }
     pendingRecipe_ = *r;
     pendingRecipeAction_ = a == Action::RemoveRecipe ? RecipeAction::Remove : RecipeAction::Prepare;
@@ -479,7 +482,7 @@ void MixerUi::updateRecipeDetails() {
   else snprintf(text, sizeof(text), "Пока нет рецептов. Добавьте первый с главного экрана.");
   lv_label_set_text(recipeDetails_, text);
   for(unsigned i = 0; i < 3; ++i) {
-    if(r && !cooking_ && (i != 0 || recipeReady_)) lv_obj_remove_state(recipeButtons_[i], LV_STATE_DISABLED);
+    if(r && !cooking_) lv_obj_remove_state(recipeButtons_[i], LV_STATE_DISABLED);
     else lv_obj_add_state(recipeButtons_[i], LV_STATE_DISABLED);
   }
 }
@@ -488,6 +491,19 @@ void MixerUi::recipeConfirmed(lv_event_t *e) {
   auto *self = static_cast<MixerUi *>(lv_event_get_user_data(e));
   if(!self->cooking_ && self->recipeHandler_) self->recipeHandler_(self->recipeContext_, self->pendingRecipeAction_, self->pendingRecipe_);
   lv_msgbox_close(static_cast<lv_obj_t *>(lv_obj_get_user_data(lv_event_get_target_obj(e))));
+}
+void MixerUi::rejectRecipe(const char *reason) {
+  recipeRejected_ = true;
+  auto *box = lv_msgbox_create(nullptr);
+  lv_obj_set_style_text_font(box, &mixer_font_16, 0);
+  lv_obj_set_width(box, 520);
+  lv_msgbox_add_title(box, "Сейчас приготовить нельзя");
+  lv_msgbox_add_text(box, reason);
+  cancelButton(box, "Понятно");
+  // Under the recipe list only the first line fits above the progress bar.
+  std::string summary = reason;
+  summary = summary.substr(0, summary.find('\n'));
+  lv_label_set_text(recipeMessage_, summary.c_str());
 }
 void MixerUi::setRecipeHandler(RecipeHandler h, void *context) { recipeHandler_ = h; recipeContext_ = context; }
 void MixerUi::setRecipeMessage(const char *message) { lv_label_set_text(recipeMessage_, message); lv_label_set_text(editorMessage_, message); }

@@ -155,10 +155,22 @@ int main() {
   lv_obj_send_event(save, LV_EVENT_CLICKED, nullptr); check(saved.size() == 1, "zero-volume recipe rejected");
   saved[0].id = 1; ui.setRecipes(saved); ui.setCooking(true, false, "ready", 0); ui.showRecipes();
   auto *prepare = findButton(lv_screen_active(), "Приготовить"); lv_obj_send_event(prepare, LV_EVENT_CLICKED, nullptr);
-  check(recipeActions.size() == 1, "prepare requires confirmation");
+  check(recipeActions.size() == 2 && recipeActions.back() == RecipeAction::Check, "prepare is checked, then confirmed");
   auto *confirm = findButton(lv_layer_top(), "Подтвердить"); check(confirm, "recipe confirmation modal");
   lv_obj_send_event(confirm, LV_EVENT_CLICKED, nullptr);
   check(recipeActions.back() == RecipeAction::Prepare, "confirmed prepare callback");
+  ui.setCooking(false, false, "not ready", 0); ui.showRecipes(); pump();
+  check(!lv_obj_has_state(prepare, LV_STATE_DISABLED), "prepare stays clickable to explain why it is impossible");
+  struct Rejecting { MixerUi *ui; int checks; } rejecting{&ui, 0};
+  ui.setRecipeHandler([](void *p, RecipeAction action, const Recipe &) {
+    auto *ctx = static_cast<Rejecting *>(p);
+    if(action == RecipeAction::Check) { ++ctx->checks; ctx->ui->rejectRecipe("Не выполнен поиск верхнего нуля."); }
+    else throw std::runtime_error("rejected recipe must not be prepared");
+  }, &rejecting);
+  lv_obj_send_event(prepare, LV_EVENT_CLICKED, nullptr); pump();
+  check(rejecting.checks == 1 && !findButton(lv_layer_top(), "Подтвердить"), "rejected recipe has no confirmation");
+  auto *reason = findButton(lv_layer_top(), "Понятно"); check(reason, "rejection reason window");
+  lv_obj_send_event(reason, LV_EVENT_CLICKED, nullptr); pump();
   ui.showTab(1); pump();
   size_t before = commands.size();
   lv_obj_send_event(findButton(ui.serviceRoot(), "Отключить энкодер"), LV_EVENT_CLICKED, nullptr);
