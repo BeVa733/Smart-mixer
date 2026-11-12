@@ -93,4 +93,10 @@ void updateRecipe() {
   }
   if(direction) { motor.step(direction); actuatorPositionSteps += direction; }
   if(previous != recipeExecution.phase() || millis() - recipeReportedAt >= 200) reportRecipe();
+  // After a finished drink find the upper zero again (not after cancel/error: keep the shaft still).
+  // Blocking like the "home" command; DONE is reported before it.
+  if(previous != smart_mixer::DrinkPhase::Done && recipeExecution.phase() == smart_mixer::DrinkPhase::Done) {
+    Serial.flush();
+    homeUp();
+  }
 }

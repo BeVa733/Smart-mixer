@@ -22,6 +22,9 @@ class RecipeExecution {
 public:
   // Same lower travel limit as MAX_DOWNWARD_MICROSTEPS in motion_controller/include/calibration.hpp.
   static constexpr int32_t MAX_DOWNWARD_STEPS = 1000;
+  // Layered mode: the shaft stays this many microsteps above the calculated liquid level
+  // (requirement: lead the layer by no more than 20-30 microsteps).
+  static constexpr int32_t LEVEL_LEAD_STEPS = 25;
   bool start(uint32_t id, uint16_t ml1, uint16_t ml2, uint32_t ms1, uint32_t ms2,
              const HeightSample *curve, unsigned count, uint32_t now, uint8_t firstPump = 1,
              bool layered = true) {
@@ -81,7 +84,7 @@ public:
     }
     if(phase_ == DrinkPhase::Lowering) {
       if(now - stageAt_ >= 30000) { fail("MOVE_TIMEOUT"); return 0; }
-      target = height(ml1_ * 1000U);
+      target = aboveLevel(ml1_ * 1000U);
       if(position == target) { phase_ = DrinkPhase::SecondLayer; stageAt_ = now; }
     }
     if(phase_ == DrinkPhase::SecondLayer) {
@@ -90,7 +93,7 @@ public:
       else {
         uint32_t volume1000 = ml1_ * 1000U + static_cast<uint64_t>(ml2_) * elapsed * 1000U / ms2_;
         percent_ = static_cast<int>(volume1000 / (10U * (ml1_ + ml2_)));
-        target = ml1_ && layered_ ? height(volume1000) : rim;
+        target = ml1_ && layered_ ? aboveLevel(volume1000) : rim;
       }
     }
     if(phase_ == DrinkPhase::Returning) {
@@ -107,6 +110,11 @@ public:
     return target > position ? 1 : target < position ? -1 : 0;
   }
 private:
+  int32_t aboveLevel(uint32_t volume1000) const {
+    int32_t target = height(volume1000) + LEVEL_LEAD_STEPS;
+    const int32_t rim = curve_[count_-1].steps;
+    return target > rim ? rim : target;
+  }
   int32_t height(uint32_t volume1000) const {
     if(volume1000 <= curve_[0].ml * 1000U) return curve_[0].steps;
     for(unsigned i = 1; i < count_; ++i) {

@@ -202,7 +202,7 @@ void UsbController::line(const std::string &s) {
     if(phase == "POSITIONING" || phase == "LOWERING" || phase == "FIRST" || phase == "SECOND" || phase == "RETURNING" ||
        phase == "DONE" || phase == "CANCELLED" || phase == "ERROR") {
       lastReport_ = nowMs(); progress_ = percent;
-      if(phase == "DONE") { cooking_ = false; cookingMessage_ = "Напиток готов. Шток у края рюмки"; }
+      if(phase == "DONE") { cooking_ = false; cookingMessage_ = "Напиток готов. Шток поднимается в верхний ноль (homing)"; }
       else if(phase == "CANCELLED") { cooking_ = false; cookingMessage_ = "Приготовление отменено. Шток удерживается на месте"; }
       else if(phase == "ERROR") {
         cooking_ = false;

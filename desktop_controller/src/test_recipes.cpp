@@ -92,7 +92,7 @@ int main() {
     if(execution.pump() == 1) { reachedPump1 = true; check(position == -10, "first layer must stay at calibrated rim"); }
     if(execution.pump() == 2) {
       check(reachedPump1, "pump order");
-      if(!reachedPump2) check(position < -70, "lower to first layer before second pump");
+      if(!reachedPump2) check(position == -84 + RecipeExecution::LEVEL_LEAD_STEPS, "lower to just above the first layer");
       reachedPump2 = true;
     }
     position += direction;
@@ -114,7 +114,7 @@ int main() {
       check(reversed.pump() == 1, "second physical pump is 1");
       if(!secondSeen) {
         secondSeen = true; secondAt = now;
-        check(position == -84, "lowering must use pump 2's first-layer 20 ml in common curve");
+        check(position == -84 + RecipeExecution::LEVEL_LEAD_STEPS, "lowering must use pump 2's first-layer 20 ml in common curve");
       }
     }
     if(previous == DrinkPhase::SecondLayer && reversed.phase() == DrinkPhase::Returning)
@@ -122,6 +122,29 @@ int main() {
     position += direction;
   }
   check(firstSeen && secondSeen && reversed.phase() == DrinkPhase::Done && position == -10, "reverse order completes at common calibrated rim");
+  // Lead over the liquid during the second layer: 0..30 microsteps above the calculated level.
+  {
+    auto level = [&](double ml) {
+      for(int i = 1; i < 3; ++i) if(ml <= curve[i].ml)
+        return curve[i-1].steps + (curve[i].steps - curve[i-1].steps) * (ml - curve[i-1].ml) / (curve[i].ml - curve[i-1].ml);
+      return static_cast<double>(curve[2].steps);
+    };
+    RecipeExecution lead; check(lead.start(50, 20, 30, 1000, 1500, curve, 3, 0), "lead test start");
+    int32_t p = 0; uint32_t secondAt = 0; bool second = false; double minLead = 1e9, maxLead = -1e9;
+    for(uint32_t now = 0; now < 6000 && lead.active(); ++now) {
+      lead.heartbeat(50, now); p += lead.step(now, p, p == 0);
+      if(lead.phase() == DrinkPhase::Lowering || lead.phase() == DrinkPhase::SecondLayer)
+        check(p >= -84, "shaft never goes below the liquid while following layers");
+      if(lead.phase() == DrinkPhase::SecondLayer) {
+        if(!second) { second = true; secondAt = now; }
+        double gap = p - level(20 + 30.0 * (now - secondAt) / 1500);
+        if(gap < minLead) minLead = gap;
+        if(gap > maxLead) maxLead = gap;
+      }
+    }
+    check(second && lead.phase() == DrinkPhase::Done, "lead recipe completes");
+    check(minLead >= 0 && maxLead <= 30, "shaft leads the second layer by 0..30 microsteps");
+  }
   RecipeExecution validation;
   check(!validation.start(20, 1, 20, 100, 1000, curve, 3, 0, 1) &&
         validation.start(20, 1, 20, 100, 1000, curve, 3, 0, 2), "minimum first-layer volume follows selected pump");
