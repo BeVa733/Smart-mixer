@@ -51,9 +51,9 @@ std::string UsbController::encode(const Command &c) {
   case Action::HeightClear: return "hcal clear";
   case Action::HeightStop: return "hcal stop";
   case Action::Move:
-    // Per-command size only; there is no limit on total downward travel.
-    if(c.value == 0 || std::abs(c.value) > 9999 || std::floor(c.value) != c.value)
-      throw std::runtime_error("Move must be 1..9999 microsteps");
+    // Total travel is limited to 1000 microsteps below home; Arduino enforces the position.
+    if(c.value == 0 || std::abs(c.value) > 1000 || std::floor(c.value) != c.value)
+      throw std::runtime_error("Move must be 1..1000 microsteps");
     snprintf(b, sizeof(b), "a %d", static_cast<int>(c.value)); break;
   case Action::Dose: case Action::SaveRate:
     if(c.value <= 0 || c.value > 1000) throw std::runtime_error("Value must be >0 and <=1000");

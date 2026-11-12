@@ -20,6 +20,8 @@ struct HeightSample { uint16_t ml; int32_t steps; };
 enum class DrinkPhase { Idle, Positioning, Lowering, FirstLayer, SecondLayer, Returning, Done, Cancelled, Error };
 class RecipeExecution {
 public:
+  // Same lower travel limit as MAX_DOWNWARD_MICROSTEPS in motion_controller/include/calibration.hpp.
+  static constexpr int32_t MAX_DOWNWARD_STEPS = 1000;
   bool start(uint32_t id, uint16_t ml1, uint16_t ml2, uint32_t ms1, uint32_t ms2,
              const HeightSample *curve, unsigned count, uint32_t now, uint8_t firstPump = 1,
              bool layered = true) {
@@ -36,7 +38,7 @@ public:
        ml1 + ml2 > curve[count-1].ml || (ml1 && (!ms1 || ms1 > 1800000)) ||
        (ml2 && (!ms2 || ms2 > 1800000))) return false;
     for(unsigned i = 0; i < count; ++i) {
-      if(curve[i].ml == 0 || curve[i].steps > 0 ||
+      if(curve[i].ml == 0 || curve[i].steps < -MAX_DOWNWARD_STEPS || curve[i].steps > 0 ||
          (i && (curve[i].ml <= curve[i-1].ml || curve[i].steps < curve[i-1].steps))) return false;
     }
     for(unsigned i = 0; i < count; ++i) curve_[i] = curve[i];
@@ -61,8 +63,7 @@ public:
   int step(uint32_t now, int32_t position, bool upperLimit) {
     if(!active()) return 0;
     if(now - heartbeatAt_ >= 2000) { fail("LINK_TIMEOUT"); return 0; }
-    // Only the upper side is bounded (0 = upper limit switch); there is no software lower limit.
-    if(position > 0) { fail("POSITION"); return 0; }
+    if(position < -MAX_DOWNWARD_STEPS || position > 0) { fail("POSITION"); return 0; }
     const int32_t rim = curve_[count_-1].steps;
     int32_t target = rim;
     if(phase_ == DrinkPhase::Positioning) {

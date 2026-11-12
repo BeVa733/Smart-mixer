@@ -173,8 +173,8 @@ int main(int argc, char **argv) {
     using namespace smart_mixer;
     if(UsbController::encode({Action::Dose, 2, 50}) != "d2 50.00" ||
        UsbController::encode({Action::Move, 0, -10}) != "a -10") return 2;
-    if(UsbController::encode({Action::Move, 0, -2000}) != "a -2000") return 4;
-    try { UsbController::encode({Action::Move, 0, 10000}); return 3; }
+    if(UsbController::encode({Action::Move, 0, -1000}) != "a -1000") return 4;
+    try { UsbController::encode({Action::Move, 0, 1001}); return 3; }
     catch(const std::exception &) {}
     puts("LVGL: main, recipes, editor, care page and four tabs rendered; USB action mapping checked; no hardware accessed.");
   }

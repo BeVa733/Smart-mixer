@@ -85,7 +85,7 @@ void MixerUi::create(CommandHandler handler, void *context) {
   dosingReply_ = label(pumps, "", 0, 320, 755);
   lv_label_set_long_mode(dosingReply_, LV_LABEL_LONG_DOT);
   label(motion, "Количество микрошагов", 0, 0, 755);
-  steps_.create(motion, 0, 42, 1, 9999, 10);
+  steps_.create(motion, 0, 42, 1, 1000, 10);
   button(motion, "Вверх", 245, 42, 140, Action::Move, 1);
   button(motion, "Вниз", 400, 42, 140, Action::Move, -1);
   button(motion, "Найти верхний ноль", 0, 110, 265, Action::Home);
@@ -245,7 +245,7 @@ void MixerUi::dispatch(Action a, int p) {
   if(a == Action::SaveRate) valid = grams_.value(value);
   if(!valid) {
     showNotice(a == Action::Dose ? "Введите объём: 1-1000 мл" :
-              a == Action::Move ? "Введите шаги: 1-9999" : "Введите массу: 0.01-999.99 г");
+              a == Action::Move ? "Введите шаги: 1-1000" : "Введите массу: 0.01-999.99 г");
     return;
   }
   if(a == Action::SaveKnownRate) {

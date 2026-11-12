@@ -142,8 +142,8 @@ int main() {
   usb.handle({Action::Disconnect, 0, 0}, name); readPeer(master);
   check(UsbController::encode({Action::HeightShow, 0, 0}) == "hcal show" &&
         UsbController::encode({Action::HeightClear, 0, 0}) == "hcal clear", "common height commands have no pump selector");
-  check(UsbController::encode({Action::Move, 0, -9999}) == "a -9999", "long downward move allowed");
-  for(auto c : {Command{Action::Move, 0, 10000}, Command{Action::Dose, 3, 5},
+  check(UsbController::encode({Action::Move, 0, -1000}) == "a -1000", "full 1000-microstep move allowed");
+  for(auto c : {Command{Action::Move, 0, 1001}, Command{Action::Move, 0, -1001}, Command{Action::Dose, 3, 5},
                 Command{Action::RunFor, 1, 0}, Command{Action::RunFor, 1, 601}, Command{Action::RunFor, 3, 5},
                 Command{Action::Dose, 1, NAN}, Command{Action::SaveRate, 1, 0}}) {
     bool rejected = false;

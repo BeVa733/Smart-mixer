@@ -370,7 +370,11 @@ void moveActuator(long steps) {
       Serial.println(F("Верхний предел: движение вверх остановлено"));
       break;
     }
-    // No software lower limit: downward travel is bounded only mechanically.
+    if (direction < 0 &&
+        actuatorPositionSteps <= -MAX_DOWNWARD_MICROSTEPS) {
+      Serial.println(F("Нижний предел: 1000 микрошагов от home"));
+      break;
+    }
     motor.step(direction);
     actuatorPositionSteps += direction;
     ++moved;
@@ -802,6 +806,9 @@ void loop(void) {
   if (mode == ControlMode::Actuator && !calibrationRunning && direction != 0) {
     if (direction > 0 && upperLimit.isTriggered()) {
       Serial.println(F("Верхний предел: движение вверх запрещено"));
+    } else if (direction < 0 &&
+               actuatorPositionSteps <= -MAX_DOWNWARD_MICROSTEPS) {
+      Serial.println(F("Нижний предел: 1000 микрошагов от home"));
     } else {
       motor.step(direction);
       actuatorPositionSteps += direction;

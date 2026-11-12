@@ -2,6 +2,10 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 
+// Lower travel limit of the shaft, microsteps below the upper limit switch (measured on the stand).
+// Keep in sync with RecipeExecution::MAX_DOWNWARD_STEPS and the desktop app.
+static constexpr int32_t MAX_DOWNWARD_MICROSTEPS = 1000;
+
 class PumpCalibration {
 public:
   static constexpr uint32_t MAGIC = 0x534D4932UL;
@@ -46,7 +50,7 @@ public:
     save();
   }
   bool addHeightPoint(uint16_t volume, int32_t steps) {
-    if(heightCount_ >= MAX_HEIGHT_POINTS || !volume || steps > 0 ||
+    if(heightCount_ >= MAX_HEIGHT_POINTS || !volume || steps < -MAX_DOWNWARD_MICROSTEPS || steps > 0 ||
        (heightCount_ && (volume <= height_[heightCount_-1].volumeMl || steps < height_[heightCount_-1].steps))) return false;
     height_[heightCount_].volumeMl = volume; height_[heightCount_].steps = steps;
     ++heightCount_; conflict_ = false; save(); return true;
@@ -74,7 +78,7 @@ private:
   static bool validCurve(unsigned count, const HeightPoint *points) {
     if(count > MAX_HEIGHT_POINTS) return false;
     for(unsigned i = 0; i < count; ++i) {
-      if(!points[i].volumeMl || points[i].steps > 0 ||
+      if(!points[i].volumeMl || points[i].steps < -MAX_DOWNWARD_MICROSTEPS || points[i].steps > 0 ||
          (i && (points[i].volumeMl <= points[i-1].volumeMl || points[i].steps < points[i-1].steps))) return false;
     }
     return true;
