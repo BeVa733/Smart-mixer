@@ -159,6 +159,24 @@ int main() {
   auto *confirm = findButton(lv_layer_top(), "Подтвердить"); check(confirm, "recipe confirmation modal");
   lv_obj_send_event(confirm, LV_EVENT_CLICKED, nullptr);
   check(recipeActions.back() == RecipeAction::Prepare, "confirmed prepare callback");
+  ui.showTab(1); pump();
+  size_t before = commands.size();
+  lv_obj_send_event(findButton(ui.serviceRoot(), "Отключить энкодер"), LV_EVENT_CLICKED, nullptr);
+  check(commands.size() == before + 1 && commands.back().action == Action::EncoderOff, "encoder mode can be switched off");
+  ui.showTab(2); pump();
+  lv_obj_t *calPump = nullptr;
+  for(uint32_t i = 0; i < lv_obj_get_child_count(lv_tabview_get_content(ui.serviceRoot())); ++i) {
+    auto *tab = lv_obj_get_child(lv_tabview_get_content(ui.serviceRoot()), i);
+    for(uint32_t j = 0; j < lv_obj_get_child_count(tab) && !calPump; ++j)
+      if(lv_obj_check_type(lv_obj_get_child(tab, j), &lv_dropdown_class)) calPump = lv_obj_get_child(tab, j);
+  }
+  check(calPump, "calibration pump selector");
+  lv_dropdown_set_selected(calPump, 1);
+  lv_obj_send_event(findButton(ui.serviceRoot(), "Данные 30.10"), LV_EVENT_CLICKED, nullptr);
+  check(commands.size() == before + 1, "stored rate requires confirmation");
+  lv_obj_send_event(findButton(lv_layer_top(), "Выполнить"), LV_EVENT_CLICKED, nullptr);
+  check(commands.back().action == Action::SaveRate && commands.back().pump == 2 &&
+        std::fabs(commands.back().value - 23.94f) < 0.001f, "pump 2 rate from 30.10 saved");
   // Priming and washing page.
   std::vector<std::pair<int, std::string>> names;
   ui.setChannelHandler([](void *p, int pump, const std::string &name) {
@@ -176,7 +194,7 @@ int main() {
   }
   check(channel && strstr(lv_dropdown_get_options(channel), "Гренадин"), "ingredient names shown for channels");
   lv_dropdown_set_selected(channel, 1); lv_obj_send_event(channel, LV_EVENT_VALUE_CHANGED, nullptr);
-  size_t before = commands.size();
+  before = commands.size();
   lv_obj_send_event(findButton(ui.careRoot(), "Калибровать"), LV_EVENT_CLICKED, nullptr);
   check(commands.size() == before + 1 && commands.back().action == Action::Prime && commands.back().pump == 2, "prime calibration starts selected channel");
   lv_obj_send_event(findButton(ui.careRoot(), "Жидкость пошла"), LV_EVENT_CLICKED, nullptr);

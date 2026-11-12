@@ -17,7 +17,9 @@ enum class Action { Connect, Disconnect, Status, Stop, Home, Encoder, Move,
                     // Line priming calibration: start, "liquid arrived" (adapter measures time).
                     CalibratePrime, PrimeArrived, PrimeMeasured,
                     // Run a pump for value seconds (Arduino-timed).
-                    RunFor };
+                    RunFor,
+                    // Leave encoder mode; store the pump's measured rate from 30.10.
+                    EncoderOff, SaveKnownRate };
 struct Command { Action action; int pump; float value; };
 typedef void (*CommandHandler)(void *, const Command &);
 // Ingredient name of a physical pump (1 or 2); empty name means "not set".

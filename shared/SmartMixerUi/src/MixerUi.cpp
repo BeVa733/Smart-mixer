@@ -90,6 +90,7 @@ void MixerUi::create(CommandHandler handler, void *context) {
   button(motion, "Вниз", 400, 42, 140, Action::Move, -1);
   button(motion, "Найти верхний ноль", 0, 110, 265, Action::Home);
   button(motion, "Управлять энкодером", 285, 110, 245, Action::Encoder);
+  button(motion, "Отключить энкодер", 545, 110, 210, Action::EncoderOff);
   label(motion, "Во время поиска нуля и движения команда STOP не обрабатывается.\nДля немедленной остановки привода отключите силовое питание.", 0, 190, 755);
   pump_ = lv_dropdown_create(cal); lv_dropdown_set_options(pump_, "Насос 1\nНасос 2");
   lv_dropdown_set_symbol(pump_, "v");
@@ -102,6 +103,7 @@ void MixerUi::create(CommandHandler handler, void *context) {
   label(cal, "Масса воды после замера 20 секунд, г", 0, 65, 750);
   grams_.create(cal, 0, 100, 1, 99999, 2730, 2);
   button(cal, "Сохранить", 245, 100, 190, Action::SaveRate);
+  button(cal, "Данные 30.10", 450, 100, 190, Action::SaveKnownRate);
   label(cal, "Общий уровень — налив выбранным насосом", 0, 162, 750);
   button(cal, "Начать уровни", 0, 190, 225, Action::HeightStart);
   button(cal, "Точка и ещё 5 мл", 240, 190, 225, Action::HeightMark);
@@ -244,6 +246,15 @@ void MixerUi::dispatch(Action a, int p) {
   if(!valid) {
     showNotice(a == Action::Dose ? "Введите объём: 1-1000 мл" :
               a == Action::Move ? "Введите шаги: 1-9999" : "Введите массу: 0.01-999.99 г");
+    return;
+  }
+  if(a == Action::SaveKnownRate) {
+    // Measured on the stand on 30.10.2026: 27.27 g and 23.94 g of water in 20 s.
+    p = lv_dropdown_get_selected(pump_) + 1;
+    pending_ = {Action::SaveRate, p, p == 1 ? 27.27f : 23.94f};
+    askConfirmation("Записать калибровку",
+      p == 1 ? "Записать в EEPROM насос 1: 27.27 г за 20 с = 1.364 мл/с (замер 30.10)?"
+             : "Записать в EEPROM насос 2: 23.94 г за 20 с = 1.197 мл/с (замер 30.10)?");
     return;
   }
   if(a == Action::Status) showTab(3);

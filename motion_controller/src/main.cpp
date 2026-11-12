@@ -81,6 +81,7 @@ void printHelp() {
   Serial.println(F("  d1 50 / d2 50     дозировать 50 мл"));
   Serial.println(F("  t1 12.5 / t2 8    насос работает заданное время, с"));
   Serial.println(F("  act               включить режим движения энкодером"));
+  Serial.println(F("  act off           выключить режим движения энкодером"));
   Serial.println(F("  a+ / a-           один шаг привода вверх/вниз"));
   Serial.println(F("  a 100 / a -100    выполнить указанное число шагов"));
   Serial.println(F("  cal               список калибровочных команд"));
@@ -703,6 +704,13 @@ void handleSerialCommand() {
     const uint8_t pumpNumber = command[1] - '0';
     const float grams = command.substring(2).toFloat();
     saveCalibrationFromSerial(pumpNumber, grams);
+    return;
+  }
+  if (command == "act off") {
+    if (mode == ControlMode::Actuator) {
+      mode = ControlMode::Idle;
+    }
+    Serial.println(F("Режим привода выключен: энкодер не двигает привод"));
     return;
   }
   if (command == "act") {

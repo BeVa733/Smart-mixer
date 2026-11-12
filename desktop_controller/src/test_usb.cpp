@@ -124,6 +124,8 @@ int main() {
   usb.handle({Action::PrimeMeasured, 2, 0}, name); readPeer(master);
   check(!usb.takePrimeMeasurement(primedPump, primedSeconds), "stopped priming is not a measurement");
   usb.handle({Action::RunFor, 2, 12.5f}, name); check(readPeer(master) == "t2 12.5\n", "timed run wire");
+  usb.handle({Action::Encoder, 0, 0}, name); check(readPeer(master) == "act\n", "encoder mode on");
+  usb.handle({Action::EncoderOff, 0, 0}, name); check(readPeer(master) == "act off\n", "encoder mode off");
   usb.handle({Action::Disconnect, 0, 0}, name);
   check(readPeer(master) == "s\n", "disconnect best effort stop");
   check(!usb.connected(), "disconnected");
@@ -135,6 +137,8 @@ int main() {
   reportCalibration("Homing: готов"); reportCalibration("MIX_API 2");
   usb.handle({Action::RunFor, 1, 5}, name);
   check(readPeer(master).empty(), "timed run needs API 3 firmware");
+  usb.handle({Action::EncoderOff, 0, 0}, name);
+  check(readPeer(master).empty(), "old firmware would treat act off as a zero move");
   usb.handle({Action::Disconnect, 0, 0}, name); readPeer(master);
   check(UsbController::encode({Action::HeightShow, 0, 0}) == "hcal show" &&
         UsbController::encode({Action::HeightClear, 0, 0}) == "hcal clear", "common height commands have no pump selector");

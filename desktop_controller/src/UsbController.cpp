@@ -45,6 +45,7 @@ std::string UsbController::encode(const Command &c) {
   case Action::Stop: return "s";
   case Action::Home: return "home";
   case Action::Encoder: return "act";
+  case Action::EncoderOff: return "act off";
   case Action::HeightMark: return "hcal mark";
   case Action::HeightShow: return "hcal show";
   case Action::HeightClear: return "hcal clear";
@@ -121,6 +122,8 @@ void UsbController::handle(const Command &c, const char *port) {
        rates_[c.pump - 1] == 0)
       throw std::runtime_error(std::string("Насос ") + char('0' + c.pump) +
         " не откалиброван (0 мл/с): Калибровка - Насос " + char('0' + c.pump) + " - 20 сек - масса - Сохранить");
+    if(c.action == Action::EncoderOff && recipeApi_ < 3)
+      throw std::runtime_error("Выключение энкодера есть в новой desktop_usb (MIX_API 3); пока поможет Стоп");
     if(c.action == Action::RunFor && recipeApi_ < 3)
       throw std::runtime_error("Для прокачки по времени загрузите новую desktop_usb (MIX_API 3)");
     send(encode(c));
