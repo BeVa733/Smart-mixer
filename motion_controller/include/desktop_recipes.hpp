@@ -1,0 +1,90 @@
+#pragma once
+#include <RecipeExecution.h>
+#include <math.h>
+
+// Included after the existing service functions; only desktop_usb compiles it.
+smart_mixer::RecipeExecution recipeExecution;
+unsigned long recipeReportedAt = 0;
+int recipePump = 0;
+
+const char *recipePhaseName() {
+  using smart_mixer::DrinkPhase;
+  switch(recipeExecution.phase()) {
+  case DrinkPhase::Positioning: return "POSITIONING";
+  case DrinkPhase::Lowering: return "LOWERING";
+  case DrinkPhase::FirstLayer: return "FIRST";
+  case DrinkPhase::SecondLayer: return "SECOND";
+  case DrinkPhase::Returning: return "RETURNING";
+  case DrinkPhase::Done: return "DONE";
+  case DrinkPhase::Cancelled: return "CANCELLED";
+  default: return "ERROR";
+  }
+}
+void reportRecipe(uint32_t id, const char *phase, int percent, const char *reason) {
+  char report[100];
+  int length = snprintf(report, sizeof(report), "MIX %lu %s %d %s\n",
+    static_cast<unsigned long>(id), phase, percent, reason);
+  if(length > 0 && length < static_cast<int>(sizeof(report)) && Serial && Serial.availableForWrite() >= length)
+    Serial.write(reinterpret_cast<const uint8_t *>(report), length);
+}
+void reportRecipe() {
+  reportRecipe(recipeExecution.id(), recipePhaseName(), recipeExecution.percent(), recipeExecution.error());
+  recipeReportedAt = millis();
+}
+void cancelRecipe() {
+  if(!recipeExecution.active()) return;
+  recipeExecution.cancel(); stopPumps(); recipePump = 0; reportRecipe();
+}
+bool handleDesktopRecipeCommand(const String &command) {
+  if(command.startsWith("lease ")) {
+    uint32_t id, max = UINT32_MAX;
+    if(smart_mixer::parseRecipeValues(command.c_str() + 6, &id, &max, 1)) recipeExecution.heartbeat(id, millis());
+    return true;
+  }
+  if(command.startsWith("mix ")) {
+    uint32_t v[4]{}; const uint32_t limits[] = {UINT32_MAX, 1000, 1000, 2};
+    if(!smart_mixer::parseRecipeValues(command.c_str() + 4, v, limits, 4) || !v[0] || !v[3]) return true;
+    if(recipeExecution.active()) {
+      if(recipeExecution.id() == v[0]) reportRecipe();
+      else reportRecipe(v[0], "ERROR", 0, "BUSY");
+      return true;
+    }
+    if(!homingReady || calibrationRunning || heightCalibrationRunning || pump1Enabled || pump2Enabled || pump1.isDosing() || pump2.isDosing()) {
+      reportRecipe(v[0], "ERROR", 0, "NOT_READY"); return true;
+    }
+    double duration1 = v[1] ? v[1] * 1000.0 / pump1.flowRate() : 0;
+    double duration2 = v[2] ? v[2] * 1000.0 / pump2.flowRate() : 0;
+    if(!isfinite(duration1) || !isfinite(duration2) || duration1 < 0 || duration2 < 0 ||
+       duration1 > 1800000 || duration2 > 1800000) {
+      reportRecipe(v[0], "ERROR", 0, "PUMP_CALIBRATION"); return true;
+    }
+    smart_mixer::HeightSample points[20];
+    unsigned count = calibration.heightPointCount();
+    const auto *stored = calibration.heightPoints();
+    for(unsigned i = 0; i < count && i < 20; ++i) { points[i].ml = stored[i].volumeMl; points[i].steps = stored[i].steps; }
+    if(!recipeExecution.start(v[0], v[1], v[2], static_cast<uint32_t>(duration1), static_cast<uint32_t>(duration2), points, count, millis(), v[3])) {
+      reportRecipe(v[0], "ERROR", 0, "CALIBRATION_OR_DUPLICATE"); return true;
+    }
+    stopPumps(); recipePump = 0; mode = ControlMode::Idle; reportRecipe(); return true;
+  }
+  if(recipeExecution.active()) {
+    if(command == "s" || command == "stop") { cancelRecipe(); return false; }
+    if(command == "status") reportRecipe();
+    else reportRecipe(recipeExecution.id(), recipePhaseName(), recipeExecution.percent(), "BUSY");
+    return true;
+  }
+  return false;
+}
+void updateRecipe() {
+  if(!recipeExecution.active()) return;
+  auto previous = recipeExecution.phase();
+  int direction = recipeExecution.step(millis(), actuatorPositionSteps, upperLimit.isTriggered());
+  int wantedPump = recipeExecution.pump();
+  if(recipePump != wantedPump) {
+    stopPumps(); recipePump = wantedPump;
+    if(recipePump == 1) pump1.setEnabled(true);
+    if(recipePump == 2) pump2.setEnabled(true);
+  }
+  if(direction) { motor.step(direction); actuatorPositionSteps += direction; }
+  if(previous != recipeExecution.phase() || millis() - recipeReportedAt >= 200) reportRecipe();
+}

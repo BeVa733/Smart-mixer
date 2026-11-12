@@ -1,0 +1,7 @@
+{
+  "name": "SmartMixerUi",
+  "version": "0.1.0",
+  "description": "Portable LVGL 9.2.2 screens, independent of USB and ESP32 hardware",
+  "frameworks": "*",
+  "platforms": "*"
+}

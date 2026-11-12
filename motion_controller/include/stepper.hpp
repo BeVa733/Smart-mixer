@@ -5,7 +5,7 @@
 class StepperMotor {
 private:
   // BIGTREETECH TMC2209 V1.3 in standalone STEP/DIR mode.
-  static constexpr uint8_t STEP_PIN = 4;
+  static constexpr uint8_t STEP_PIN = 7;
   static constexpr uint8_t DIR_PIN = 5;
   static constexpr uint8_t ENABLE_PIN = 6;
   static constexpr unsigned int STEP_DELAY_US = 500;

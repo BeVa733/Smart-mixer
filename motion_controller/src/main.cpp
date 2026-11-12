@@ -15,7 +15,7 @@ static constexpr int32_t MAX_DOWNWARD_MICROSTEPS = 650;
 PumpCalibration calibration;
 Encoder encoder;
 LimitSwitch upperLimit;
-Pump pump1(7);
+Pump pump1(8);
 Pump pump2(10);
 StepperMotor motor;
 
@@ -51,19 +51,12 @@ Pump &heightCalibrationPump() {
   return heightCalibrationPumpNumber == 1 ? pump1 : pump2;
 }
 
-void printHeightCalibrationTable(uint8_t pumpNumber) {
-  if (pumpNumber != 1 && pumpNumber != 2) {
-    Serial.println(F("Номер насоса должен быть 1 или 2"));
-    return;
-  }
-
-  const uint8_t count = calibration.heightPointCount(pumpNumber);
+void printHeightCalibrationTable() {
+  const uint8_t count = calibration.heightPointCount();
   const PumpCalibration::HeightPoint *points =
-      calibration.heightPoints(pumpNumber);
+      calibration.heightPoints();
 
-  Serial.print(F("Таблица высоты P"));
-  Serial.print(pumpNumber);
-  Serial.println(F(":"));
+  Serial.println(F("Общая таблица уровня:"));
   if (count == 0) {
     Serial.println(F("  пока нет сохранённых точек"));
     return;
@@ -98,10 +91,10 @@ void printHelp() {
   Serial.println(F("  cal 50 1          проверка дозирования 50 мл"));
   Serial.println(F("  cal 50 2          проверка дозирования 50 мл"));
   Serial.println(F("  c1 27.3 / c2 23.9 сохранить граммы после замера 20 секунд"));
-  Serial.println(F("  hcal start 1/2  калибровка высоты по 5 мл"));
+  Serial.println(F("  hcal start 1/2  общая калибровка уровня; насос для налива"));
   Serial.println(F("  hcal mark       сохранить текущий уровень"));
-  Serial.println(F("  hcal show 1/2   показать таблицу высоты"));
-  Serial.println(F("  hcal clear 1/2  стереть таблицу высоты"));
+  Serial.println(F("  hcal show       показать общую таблицу уровня"));
+  Serial.println(F("  hcal clear      стереть общую таблицу уровня"));
   Serial.println(F("  hcal stop       остановить калибровку высоты"));
   Serial.println(F("  s                 аварийно остановить насосы и калибровку"));
 }
@@ -120,6 +113,9 @@ void printMenu() {
 }
 
 void printStatus() {
+#ifdef SMART_MIXER_MANUAL_HOME
+  Serial.println(F("MIX_API 2"));
+#endif
   Serial.println(F("\n--- Состояние ---"));
   Serial.print(F("Homing: "));
   Serial.println(homingReady ? F("готов") : F("не выполнен"));
@@ -144,7 +140,7 @@ void printStatus() {
   Serial.println(F(" микрошагов от верхнего концевика"));
   Serial.print(F("Калибровка высоты: "));
   if (heightCalibrationRunning) {
-    Serial.print(F("P"));
+    Serial.print(F("общая, насос для налива P"));
     Serial.print(heightCalibrationPumpNumber);
     Serial.print(F(", порция "));
     Serial.print(heightCalibrationVolumeMl);
@@ -403,23 +399,19 @@ void markHeightCalibrationPoint() {
     return;
   }
 
-  if (!calibration.addHeightPoint(heightCalibrationPumpNumber,
-                                  heightCalibrationVolumeMl,
+  if (!calibration.addHeightPoint(heightCalibrationVolumeMl,
                                   actuatorPositionSteps)) {
-    Serial.println(F("Таблица заполнена; калибровка высоты остановлена"));
-    stopHeightCalibration(false);
+    Serial.println(F("Точка не сохранена: проверьте объём, положение и порядок уровней"));
     return;
   }
 
-  Serial.print(F("Сохранено: P"));
-  Serial.print(heightCalibrationPumpNumber);
-  Serial.print(F(", "));
+  Serial.print(F("Сохранено в общей таблице: "));
   Serial.print(heightCalibrationVolumeMl);
   Serial.print(F(" мл -> "));
   Serial.print(actuatorPositionSteps);
   Serial.println(F(" микрошагов"));
 
-  if (calibration.heightPointCount(heightCalibrationPumpNumber) >=
+  if (calibration.heightPointCount() >=
       PumpCalibration::MAX_HEIGHT_POINTS) {
     Serial.println(F("Достигнут максимум точек калибровки"));
     stopHeightCalibration(false);
@@ -450,19 +442,19 @@ void startHeightCalibration(uint8_t pumpNumber) {
   stopHeightCalibration(false);
   stopPumps();
 
-  // The upper limit is the zero reference for every height table.
+  // The upper limit is the zero reference for the common height table.
   if (!homeUp()) {
     return;
   }
 
-  calibration.clearHeight(pumpNumber);
+  calibration.clearHeight();
   heightCalibrationPumpNumber = pumpNumber;
   heightCalibrationVolumeMl = HEIGHT_CALIBRATION_INCREMENT_ML;
   heightCalibrationRunning = true;
   heightCalibrationAwaitingMark = false;
   mode = ControlMode::Actuator;
 
-  Serial.print(F("Начата калибровка высоты P"));
+  Serial.print(F("Начата общая калибровка высоты; насос для налива P"));
   Serial.println(pumpNumber);
   startHeightDose();
 }
@@ -479,8 +471,18 @@ void startHeightCalibrationCommand(const String &arguments) {
     stopHeightCalibration();
     return;
   }
+  if (action == "show") { printHeightCalibrationTable(); return; }
+  if (action == "clear") {
+    if (heightCalibrationRunning) {
+      Serial.println(F("Сначала остановите текущую калибровку высоты"));
+      return;
+    }
+    calibration.clearHeight();
+    Serial.println(F("Общая таблица уровня очищена"));
+    return;
+  }
   if (action.length() == 0) {
-    Serial.println(F("hcal start 1/2 | hcal mark | hcal show 1/2 | hcal clear 1/2 | hcal stop"));
+    Serial.println(F("hcal start 1/2 | hcal mark | hcal show | hcal clear | hcal stop"));
     return;
   }
 
@@ -500,17 +502,6 @@ void startHeightCalibrationCommand(const String &arguments) {
 
   if (kind == "start") {
     startHeightCalibration(pumpNumber);
-  } else if (kind == "show") {
-    printHeightCalibrationTable(pumpNumber);
-  } else if (kind == "clear") {
-    if (heightCalibrationRunning) {
-      Serial.println(F("Сначала остановите текущую калибровку высоты"));
-      return;
-    }
-    calibration.clearHeight(pumpNumber);
-    Serial.print(F("Таблица высоты P"));
-    Serial.print(pumpNumber);
-    Serial.println(F(" очищена"));
   } else {
     Serial.println(F("Команды: start, mark, show, clear, stop"));
   }
@@ -582,18 +573,51 @@ void startCalibrationCommand(const String &arguments) {
   startCalibration();
 }
 
+#ifdef SMART_MIXER_MANUAL_HOME
+#include "desktop_recipes.hpp"
+#endif
+
 void handleSerialCommand() {
+#ifdef SMART_MIXER_MANUAL_HOME
+  // Read bounded complete lines; never wait for the tail of a USB packet.
+  static char input[96];
+  static unsigned length = 0;
+  static bool discard = false;
+  static unsigned long beganAt = 0;
+  if(length && millis() - beganAt >= 250) { length = 0; discard = true; }
+  bool complete = false;
+  for(unsigned budget = 0; budget < 64 && Serial.available(); ++budget) {
+    char c = static_cast<char>(Serial.read());
+    if(c == '\n') {
+      if(!discard && length) { input[length] = 0; complete = true; }
+      discard = false;
+      if(complete) break;
+      length = 0; continue;
+    }
+    if(c == '\r') continue;
+    if(discard) continue;
+    if(length == 0) beganAt = millis();
+    if(c < 32 || c > 126 || length + 1 >= sizeof(input)) { discard = true; length = 0; continue; }
+    input[length++] = c;
+  }
+  if(!complete) return;
+  String command(input); length = 0;
+#else
   if (!Serial.available()) {
     return;
   }
 
   String command = Serial.readStringUntil('\n');
+#endif
   command.trim();
   command.toLowerCase();
 
   if (command.length() == 0) {
     return;
   }
+#ifdef SMART_MIXER_MANUAL_HOME
+  if (handleDesktopRecipeCommand(command)) return;
+#endif
   if (command == "help") {
     printHelp();
     return;
@@ -711,13 +735,23 @@ void setup(void) {
   if (!calibrationLoaded) {
     Serial.println(F("Калибровка не найдена в EEPROM"));
   }
+  if (calibration.heightMigrationConflict()) {
+    Serial.println(F("Старые таблицы уровня различаются. Выполните общую калибровку; EEPROM при старте не изменена"));
+  }
 
+#ifdef SMART_MIXER_MANUAL_HOME
+  Serial.println(F("Для начала работы выполните home из интерфейса ПК"));
+#else
   homeUp();
+#endif
   printMenu();
 }
 
 void loop(void) {
   handleSerialCommand();
+#ifdef SMART_MIXER_MANUAL_HOME
+  updateRecipe();
+#endif
 
   pump1.update();
   pump2.update();

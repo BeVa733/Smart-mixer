@@ -1,13 +1,35 @@
 #include <Arduino.h>
+#include <DiagnosticLink.h>
 #include <Wire.h>
 
 #include <esp_err.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_rgb.h>
+#include <esp_log.h>
+#include <esp_random.h>
 #include <esp_timer.h>
 #include <lvgl.h>
 
 namespace {
+
+using namespace smart_mixer::protocol;
+Transport linkTransport;
+DiagnosticClient linkClient;
+uint32_t vsyncFailures = 0;
+char startupError[80] = "NONE";
+bool pingFromUi = false;
+
+struct EspWriter {
+  size_t tryWrite(const char *bytes, size_t length) {
+    const int freeBytes = Serial0.availableForWrite();
+    if (freeBytes <= 0)
+      return 0;
+    const size_t count = length < static_cast<size_t>(freeBytes)
+                             ? length
+                             : static_cast<size_t>(freeBytes);
+    return Serial0.write(reinterpret_cast<const uint8_t *>(bytes), count);
+  }
+} linkWriter;
 
 constexpr uint16_t SCREEN_WIDTH = 800;
 constexpr uint16_t SCREEN_HEIGHT = 480;
@@ -91,15 +113,13 @@ public:
           reinterpret_cast<void **>(&frameBuffers_[1]));
     }
     if (result != ESP_OK) {
-      Serial.printf("RGB panel initialization failed: %s\n",
-                    esp_err_to_name(result));
+      snprintf(startupError, sizeof(startupError), "RGB: %s",
+               esp_err_to_name(result));
       return false;
     }
 
     memset(frameBuffers_[0], 0, FRAME_BUFFER_BYTES);
     memset(frameBuffers_[1], 0, FRAME_BUFFER_BYTES);
-    Serial.printf("RGB framebuffers: %p, %p (%u bytes each)\n",
-                  frameBuffers_[0], frameBuffers_[1], FRAME_BUFFER_BYTES);
     return true;
   }
 
@@ -153,6 +173,10 @@ bool uiReady = false;
 lv_obj_t *button = nullptr;
 lv_obj_t *buttonLabel = nullptr;
 lv_obj_t *counterLabel = nullptr;
+lv_obj_t *linkLabel = nullptr;
+lv_obj_t *motionLabel = nullptr;
+lv_obj_t *metricsLabel = nullptr;
+lv_obj_t *errorLabel = nullptr;
 uint32_t pressCount = 0;
 
 bool i2cWrite8(uint8_t address, uint8_t reg, uint8_t value) {
@@ -235,12 +259,10 @@ bool initializeTouch() {
     return false;
   }
 
-  Serial.printf("GT911 detected at 0x%02X\n", touchAddress);
   return true;
 }
 
 void pollTouchController() {
-  const bool wasTouchPressed = touchPressed;
   uint8_t status = 0;
   if (!gt911Read(GT911_STATUS_REGISTER, &status, 1)) {
     touchPressed = false;
@@ -265,9 +287,6 @@ void pollTouchController() {
       touchX = constrain(rawX, 0U, SCREEN_WIDTH - 1U);
       touchY = constrain(rawY, 0U, SCREEN_HEIGHT - 1U);
       touchPressed = true;
-      if (!wasTouchPressed) {
-        Serial.printf("Touch down at %u,%u\n", touchX, touchY);
-      }
     } else {
       touchPressed = false;
     }
@@ -282,7 +301,7 @@ void displayFlush(lv_display_t *lvDisplay, const lv_area_t *area,
                   uint8_t *pixelMap) {
   (void)area;
   if (!display.present(pixelMap)) {
-    Serial.println("RGB framebuffer VSYNC switch timed out");
+    ++vsyncFailures;
   }
   lv_display_flush_ready(lvDisplay);
 }
@@ -298,18 +317,7 @@ void touchRead(lv_indev_t *, lv_indev_data_t *data) {
 
 void buttonClicked(lv_event_t *) {
   ++pressCount;
-
-  char text[32];
-  snprintf(text, sizeof(text), "Touches: %lu",
-           static_cast<unsigned long>(pressCount));
-  lv_label_set_text(counterLabel, text);
-  lv_label_set_text(buttonLabel, "TOUCH OK");
-
-  const uint32_t color = (pressCount % 2U == 0U) ? 0x2563EB : 0x16A34A;
-  lv_obj_set_style_bg_color(button, lv_color_hex(color), LV_PART_MAIN);
-
-  Serial.printf("Button pressed: %lu at %u,%u\n",
-                static_cast<unsigned long>(pressCount), touchX, touchY);
+  pingFromUi = true;
 }
 
 void createTouchTestScreen() {
@@ -320,22 +328,34 @@ void createTouchTestScreen() {
   lv_label_set_text(title, "SMART MIXER");
   lv_obj_set_style_text_font(title, &lv_font_montserrat_28, LV_PART_MAIN);
   lv_obj_set_style_text_color(title, lv_color_hex(0xF8FAFC), LV_PART_MAIN);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 55);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
 
   lv_obj_t *subtitle = lv_label_create(screen);
-  lv_label_set_text(subtitle, "CrowPanel Rev 3 touch test");
+  lv_label_set_text(subtitle, "UART diagnostics / 19200 8N1 / protocol v1");
   lv_obj_set_style_text_color(subtitle, lv_color_hex(0x94A3B8), LV_PART_MAIN);
-  lv_obj_align(subtitle, LV_ALIGN_TOP_MID, 0, 105);
+  lv_obj_align(subtitle, LV_ALIGN_TOP_MID, 0, 65);
+
+  lv_obj_t **labels[] = {&linkLabel, &motionLabel, &metricsLabel, &errorLabel};
+  const int y[] = {105, 155, 225, 285};
+  for (size_t i = 0; i < 4; ++i) {
+    *labels[i] = lv_label_create(screen);
+    lv_obj_set_width(*labels[i], 760);
+    lv_obj_set_style_text_align(*labels[i], LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_color(*labels[i], lv_color_hex(0xE2E8F0),
+                                LV_PART_MAIN);
+    lv_label_set_text(*labels[i], "Waiting...");
+    lv_obj_align(*labels[i], LV_ALIGN_TOP_MID, 0, y[i]);
+  }
 
   button = lv_button_create(screen);
-  lv_obj_set_size(button, 300, 120);
-  lv_obj_align(button, LV_ALIGN_CENTER, 0, 15);
+  lv_obj_set_size(button, 260, 70);
+  lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -55);
   lv_obj_set_style_radius(button, 20, LV_PART_MAIN);
   lv_obj_set_style_bg_color(button, lv_color_hex(0x2563EB), LV_PART_MAIN);
   lv_obj_add_event_cb(button, buttonClicked, LV_EVENT_CLICKED, nullptr);
 
   buttonLabel = lv_label_create(button);
-  lv_label_set_text(buttonLabel, "PRESS ME");
+  lv_label_set_text(buttonLabel, "SEND PING");
   lv_obj_set_style_text_font(buttonLabel, &lv_font_montserrat_28, LV_PART_MAIN);
   lv_obj_center(buttonLabel);
 
@@ -343,7 +363,79 @@ void createTouchTestScreen() {
   lv_label_set_text(counterLabel, "Touches: 0");
   lv_obj_set_style_text_color(counterLabel, lv_color_hex(0xE2E8F0),
                               LV_PART_MAIN);
-  lv_obj_align(counterLabel, LV_ALIGN_BOTTOM_MID, 0, -65);
+  lv_obj_align(counterLabel, LV_ALIGN_BOTTOM_MID, 0, -15);
+}
+
+void setLabelIfChanged(lv_obj_t *label, const char *text) {
+  if (strcmp(lv_label_get_text(label), text) != 0)
+    lv_label_set_text(label, text);
+}
+
+void updateDiagnosticsScreen(uint32_t now) {
+  static uint32_t updatedAt = 0;
+  if (now - updatedAt < 200)
+    return;
+  updatedAt = now;
+  const char *state = "OFFLINE";
+  switch (linkClient.state()) {
+  case LinkState::Hello:
+    state = "HELLO";
+    break;
+  case LinkState::Opening:
+    state = "OPENING";
+    break;
+  case LinkState::Synchronizing:
+    state = "SYNC STATUS";
+    break;
+  case LinkState::Ready:
+    state = "CONNECTED / MOTION DIAG v1";
+    break;
+  case LinkState::Offline:
+    break;
+  }
+  char text[180];
+  snprintf(text, sizeof(text), "%s / session %lu", state,
+           static_cast<unsigned long>(linkClient.session()));
+  setLabelIfChanged(linkLabel, text);
+  if (linkClient.state() == LinkState::Ready) {
+    const auto &m = linkClient.motion();
+    char position[24] = "unknown";
+    if (m.homed)
+      snprintf(position, sizeof(position), "%ld",
+               static_cast<long>(m.position));
+    snprintf(text, sizeof(text),
+             "Homed: %s / limit: %s / position: %s\nPumps: %s / %s (read-only)",
+             m.homed ? "yes" : "no", m.upperLimit ? "active" : "free", position,
+             m.pump1 ? "ON" : "OFF", m.pump2 ? "ON" : "OFF");
+  } else {
+    snprintf(text, sizeof(text),
+             "Arduino status unavailable / no actuator commands");
+  }
+  setLabelIfChanged(motionLabel, text);
+  const auto &rx = linkTransport.received();
+  snprintf(text, sizeof(text),
+           "RTT %lu ms / RX %lu / TX %lu\nCRC %lu / drops %lu / timeouts %lu",
+           static_cast<unsigned long>(linkClient.rttMs()),
+           static_cast<unsigned long>(rx.frames),
+           static_cast<unsigned long>(linkTransport.sent()),
+           static_cast<unsigned long>(rx.invalidChecksum),
+           static_cast<unsigned long>(linkTransport.dropped()),
+           static_cast<unsigned long>(linkClient.timeouts()));
+  setLabelIfChanged(metricsLabel, text);
+  const uint32_t parseErrors = rx.invalidFormat + rx.unsupportedVersion +
+                               rx.invalidNumber + rx.invalidField +
+                               rx.overflow + rx.timeout;
+  snprintf(
+      text, sizeof(text), "Last: %s / parse %lu / unexpected %lu / VSYNC %lu",
+      strcmp(startupError, "NONE") == 0 ? linkClient.lastError() : startupError,
+      static_cast<unsigned long>(parseErrors),
+      static_cast<unsigned long>(linkClient.unexpected()),
+      static_cast<unsigned long>(vsyncFailures));
+  setLabelIfChanged(errorLabel, text);
+  snprintf(text, sizeof(text), "Touches: %lu / PONG: %lu",
+           static_cast<unsigned long>(pressCount),
+           static_cast<unsigned long>(linkClient.pongs()));
+  setLabelIfChanged(counterLabel, text);
 }
 
 bool initializeLvgl() {
@@ -353,7 +445,8 @@ bool initializeLvgl() {
   auto *frameBuffer0 = display.frameBuffer(0);
   auto *frameBuffer1 = display.frameBuffer(1);
   if (frameBuffer0 == nullptr || frameBuffer1 == nullptr) {
-    Serial.println("RGB framebuffers are unavailable");
+    snprintf(startupError, sizeof(startupError),
+             "RGB framebuffers unavailable");
     return false;
   }
 
@@ -374,44 +467,59 @@ bool initializeLvgl() {
 } // namespace
 
 void setup() {
-  Serial.begin(115200);
+  // UART0 has one owner. ROM boot output may still exist; the parser ignores
+  // it.
+  esp_log_level_set("*", ESP_LOG_NONE);
+  Serial0.setDebugOutput(false);
+  Serial0.setRxBufferSize(1024);
+  Serial0.begin(kLinkBaud, SERIAL_8N1, 44, 43);
   delay(300);
-  Serial.println("\nSmart Mixer CrowPanel Rev 3 starting");
-  Serial.printf("PSRAM: %s, size: %u bytes\n", psramFound() ? "OK" : "missing",
-                ESP.getPsramSize());
 
   pinMode(BACKLIGHT_PIN, OUTPUT);
   digitalWrite(BACKLIGHT_PIN, LOW);
 
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQUENCY);
   if (!initializeRevision3Signals()) {
-    Serial.println("PCA9557 initialization failed");
+    snprintf(startupError, sizeof(startupError),
+             "PCA9557 initialization failed");
     return;
   }
 
   if (!display.begin()) {
-    Serial.println("RGB display initialization failed");
+    snprintf(startupError, sizeof(startupError),
+             "RGB display initialization failed");
     return;
   }
 
   if (!initializeTouch()) {
-    Serial.println("GT911 was not found");
-    return;
+    snprintf(startupError, sizeof(startupError), "GT911 was not found");
   }
 
   if (!initializeLvgl()) {
-    Serial.println("LVGL initialization failed");
+    snprintf(startupError, sizeof(startupError), "LVGL initialization failed");
     return;
   }
 
   digitalWrite(BACKLIGHT_PIN, HIGH);
   lv_timer_handler();
   uiReady = true;
-  Serial.println("Touch test ready");
 }
 
 void loop() {
   if (uiReady) {
+    const uint32_t now = millis();
+    linkTransport.receive(Serial0, now, [](const Packet &packet, uint32_t at) {
+      linkClient.handle(packet, at, linkTransport);
+    });
+    if (pingFromUi) {
+      pingFromUi = false;
+      linkClient.requestPing();
+    }
+    // esp_random() without RF is sufficient for diagnostic collision avoidance,
+    // not a cryptographic identity or a persisted exactly-once operation ID.
+    linkClient.tick(now, esp_random(), linkTransport);
+    linkTransport.transmit(linkWriter);
+    updateDiagnosticsScreen(now);
     lv_timer_handler();
   }
   delay(5);

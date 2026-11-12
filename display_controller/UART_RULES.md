@@ -57,6 +57,10 @@ Elecrow. Кабель только с питанием исключает пер
    Это выбор нашего проекта, а не обязательная скорость Elecrow.
 2. На CrowPanel явно назначать RX=44 и TX=43. На UNO использовать Serial1
    на D0/D1; USB Serial UNO оставить для диагностического текста.
+   В сборке uart_diagnostics тот же порт SCI2 обслуживает асинхронный FSP-адаптер
+   DiagnosticUart: Serial1.begin/write параллельно не вызывать. Это нужно потому,
+   что в core Renesas 1.6.0 Serial1.write ждёт прерывания, а availableForWrite
+   не переопределён. Короткие FSP-callback работают только с буферами и флагами.
 3. У GPIO43/44 должен быть один программный владелец. Не инициализировать
    одновременно Serial/Serial0 и другой HardwareSerial на этих же контактах.
    Номер аппаратного UART и надпись UART0 на разъёме — разные вещи: выводы
@@ -108,6 +112,7 @@ Rev3 с 470 Ом на конкретный преобразователь RS485.
 - [Ответ Elecrow об общих выводах UART и USB-отладке](https://forum.elecrow.com/discussion/716/how-to-use-gpio-or-uart-ports).
 - [Ответ Elecrow про резисторы 22/470 Ом и GPIO44](https://forum.elecrow.com/discussion/728/7-inch-display-dis08070h-uart-pin-44-rx).
 - [Сообщение пользователя Rev3 с 470 Ом](https://forum.elecrow.com/discussion/728/7-inch-display-dis08070h-uart-pin-44-rx/p3).
-- [Точная схема Rev3 и подключения проекта](../docs/CONNECTIONS.md).
+- [Схема Rev3, EAGLE, commit c9799dba](https://github.com/Elecrow-RD/CrowPanel-7.0-HMI-ESP32-Display-800x480/blob/c9799dba5a382b7f6b7fadcf754142dea595029b/Eagle_SCH%26PCB/V3.0/CrowPanel%20ESP32%20Display-7.0-inch-V3.0-20240420.sch).
+- [Подключения модулей проекта](../docs/CONNECTIONS.md).
 - [Спецификация протокола](../docs/PROTOCOL.md).
 - [Правила дисплея и LVGL](DISPLAY_LVGL_RULES.md).
