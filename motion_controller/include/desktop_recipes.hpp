@@ -74,6 +74,13 @@ bool handleDesktopRecipeCommand(const String &command) {
     if(!recipeExecution.start(v[0], v[1], v[2], static_cast<uint32_t>(duration1), static_cast<uint32_t>(duration2), points, count, millis(), v[3], v[4] != 0)) {
       reportRecipe(v[0], "ERROR", 0, "CALIBRATION_OR_DUPLICATE"); return true;
     }
+    // Log the planned pump times so a short pour can be checked against the calibration.
+    for(int p = 1; p <= 2; ++p) {
+      Serial.print(F("Рецепт: P")); Serial.print(p); Serial.print(F(" "));
+      Serial.print(v[p]); Serial.print(F(" мл -> "));
+      Serial.print(static_cast<unsigned long>(p == 1 ? duration1 : duration2)); Serial.print(F(" мс по "));
+      Serial.print((p == 1 ? pump1 : pump2).flowRate(), 3); Serial.println(F(" мл/с"));
+    }
     stopPumps(); recipePump = 0; mode = ControlMode::Idle; reportRecipe(); return true;
   }
   if(recipeExecution.active()) {

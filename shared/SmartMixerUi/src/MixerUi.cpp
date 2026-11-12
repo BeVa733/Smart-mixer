@@ -100,17 +100,21 @@ void MixerUi::create(CommandHandler handler, void *context) {
   button(cal, "Прокачка", 185, 0, 135, Action::Prime);
   button(cal, "20 сек", 335, 0, 125, Action::Measure);
   button(cal, "50 мл", 475, 0, 120, Action::CheckDose);
-  label(cal, "Масса воды после замера 20 секунд, г", 0, 65, 750);
+  // Calibrate on the liquid that is really in this channel: syrups and cream are denser
+  // than water (grams != ml) and thicker (the pump moves less per second).
+  label(cal, "Масса за 20 с, г", 0, 65, 230);
+  label(cal, "Плотность жидкости, г/мл", 240, 65, 230);
   grams_.create(cal, 0, 100, 1, 99999, 2730, 2);
-  button(cal, "Сохранить", 245, 100, 190, Action::SaveRate);
-  // What Arduino has in EEPROM right now (refreshed by "Состояние" and level replies).
-  eepromInfo_ = label(cal, "EEPROM: нажмите Состояние", 450, 98, 305);
+  density_.create(cal, 240, 100, 50, 300, 100, 2);
+  button(cal, "Сохранить", 480, 100, 245, Action::SaveRate);
   label(cal, "Общий уровень — налив выбранным насосом", 0, 162, 750);
   button(cal, "Начать уровни", 0, 190, 225, Action::HeightStart);
   button(cal, "Точка и ещё 5 мл", 240, 190, 225, Action::HeightMark);
   button(cal, "Завершить уровни", 480, 190, 245, Action::HeightStop);
   button(cal, "Показать уровни", 0, 252, 225, Action::HeightShow);
   button(cal, "Стереть уровни", 240, 252, 225, Action::HeightClear);
+  // What Arduino has in EEPROM right now (refreshed by "Состояние" and level replies).
+  eepromInfo_ = label(cal, "EEPROM: нажмите Состояние", 480, 250, 275);
   // Shows whether each level point was saved or rejected by Arduino.
   calReply_ = label(cal, "", 0, 312, 755);
   lv_label_set_long_mode(calReply_, LV_LABEL_LONG_DOT);
@@ -249,10 +253,21 @@ void MixerUi::dispatch(Action a, int p) {
   bool valid = true;
   if(a == Action::Dose) valid = volume_[p-1].value(value);
   if(a == Action::Move) { valid = steps_.value(value); value *= p; }
-  if(a == Action::SaveRate) valid = grams_.value(value);
+  if(a == Action::SaveRate) {
+    float density = 0;
+    valid = grams_.value(value) && density_.value(density);
+    // Arduino stores c<N> <ml in 20 s>: convert the weighed grams into millilitres.
+    if(valid) {
+      snprintf(rateConfirm_, sizeof(rateConfirm_),
+        "Записать в EEPROM насос %d: %.2f г / %.2f г/мл = %.2f мл за 20 с = %.3f мл/с?",
+        static_cast<int>(lv_dropdown_get_selected(pump_)) + 1, value, density, value / density, value / density / 20);
+      value /= density;
+    }
+  }
   if(!valid) {
     showNotice(a == Action::Dose ? "Введите объём: 1-1000 мл" :
-              a == Action::Move ? "Введите шаги: 1-1000" : "Введите массу: 0.01-999.99 г");
+              a == Action::Move ? "Введите шаги: 1-1000" :
+              "Введите массу 0.01-999.99 г и плотность 0.50-3.00 г/мл");
     return;
   }
   if(a == Action::Status) showTab(3);
@@ -265,7 +280,7 @@ void MixerUi::dispatch(Action a, int p) {
     lv_msgbox_add_title(box, "Подтверждение");
     lv_msgbox_add_text(box, a == Action::Home ? "Начать поиск верхнего концевика?" :
       a == Action::HeightStart ? "Стереть общую таблицу уровня, найти ноль и налить 5 мл выбранным насосом?" :
-      a == Action::HeightClear ? "Стереть общую таблицу уровня из EEPROM?" : "Записать коэффициент насоса в EEPROM?");
+      a == Action::HeightClear ? "Стереть общую таблицу уровня из EEPROM?" : rateConfirm_);
     cancelButton(box);
     auto *ok = lv_msgbox_add_footer_button(box, "Выполнить");
     lv_obj_set_style_text_font(ok, &mixer_font_16, 0);
