@@ -9,6 +9,8 @@ struct Recipe {
   std::string name;
   uint16_t ml1 = 0, ml2 = 0;
   uint8_t firstPump = 1;
+  // true: layers, the shaft follows the liquid level; false: mixed drink poured at the rim.
+  bool layered = true;
 };
 inline bool validRecipe(const Recipe &r) {
   if(r.name.empty() || r.name.size() > 64 || r.ml1 > 1000 || r.ml2 > 1000 ||

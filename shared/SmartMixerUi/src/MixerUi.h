@@ -1,6 +1,7 @@
 #pragma once
 #include <lvgl.h>
 #include <stdint.h>
+#include <string>
 #include "NumericInput.h"
 #include "Recipe.h"
 
@@ -10,9 +11,13 @@ enum class Action { Connect, Disconnect, Status, Stop, Home, Encoder, Move,
                     Dose, PumpOn, PumpOff, Prime, Measure, CheckDose, SaveRate,
                     HeightStart, HeightMark, HeightStop, HeightShow, HeightClear,
                     MainMenu, Service, Recipes, NewRecipe, EditRecipe, SaveRecipe,
-                    RemoveRecipe, PrepareRecipe };
+                    RemoveRecipe, PrepareRecipe,
+                    // Priming and washing page (user maintenance, not service).
+                    Care, CarePrime, WashSolution, WashWater, SaveChannelName };
 struct Command { Action action; int pump; float value; };
 typedef void (*CommandHandler)(void *, const Command &);
+// Ingredient name of a physical pump (1 or 2); empty name means "not set".
+typedef void (*ChannelHandler)(void *, int pump, const std::string &name);
 
 class MixerUi {
 public:
@@ -27,6 +32,11 @@ public:
   void showMain();
   void showRecipes();
   void showNewRecipe() { dispatch(Action::NewRecipe, 0); }
+  void showCare();
+  lv_obj_t *careRoot() const { return care_; }
+  void setChannelNames(const std::string &pump1, const std::string &pump2);
+  void setChannelHandler(ChannelHandler handler, void *context);
+  void setChannelMessage(const char *message);
   lv_obj_t *recipeEditorRoot() const { return editor_; }
   void setRecipes(const std::vector<Recipe> &recipes);
   void setRecipeHandler(RecipeHandler handler, void *context);
@@ -52,7 +62,14 @@ private:
   lv_obj_t *main_ = nullptr, *catalog_ = nullptr, *editor_ = nullptr;
   lv_obj_t *recipeList_ = nullptr, *recipeDetails_ = nullptr, *recipeMessage_ = nullptr;
   lv_obj_t *recipeName_ = nullptr, *editorMessage_ = nullptr, *progress_ = nullptr;
-  lv_obj_t *firstPump_ = nullptr;
+  lv_obj_t *firstPump_ = nullptr, *recipeMode_ = nullptr;
+  lv_obj_t *pumpTitles_[2]{}, *editorPumpLabels_[2]{};
+  lv_obj_t *care_ = nullptr, *careChannel_ = nullptr, *channelName_ = nullptr;
+  lv_obj_t *careStatus_ = nullptr, *careReply_ = nullptr, *channelMessage_ = nullptr;
+  NumericInput washMl_;
+  std::string channels_[2];
+  ChannelHandler channelHandler_ = nullptr;
+  void *channelContext_ = nullptr;
   lv_obj_t *recipeButtons_[3]{};
   NumericInput recipeMl1_, recipeMl2_;
   std::vector<Recipe> recipes_;
@@ -71,6 +88,11 @@ private:
   void updateNavigation();
   void showNotice(const char *message);
   void createRecipePages(lv_obj_t *screen);
+  void createCarePage(lv_obj_t *screen);
+  void refreshChannels();
+  std::string pumpName(int pump) const;
+  void askConfirmation(const char *title, const char *text);
+  static void careChannelChanged(lv_event_t *);
   void updateRecipeDetails();
   const Recipe *selectedRecipe() const;
   static void recipeSelected(lv_event_t *);

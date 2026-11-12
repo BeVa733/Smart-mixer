@@ -40,7 +40,30 @@ int main() {
     check(header == "SMART_MIXER_RECIPES 1", "loading recipes must not rewrite file"); }
   restarted.save(restarted.recipes()[0]);
   { std::ifstream upgraded(path); std::string header; std::getline(upgraded, header);
-    check(header == "SMART_MIXER_RECIPES 2", "explicit save upgrades recipe schema"); }
+    check(header == "SMART_MIXER_RECIPES 3", "explicit save upgrades recipe schema"); }
+  check(restarted.recipes()[0].layered, "legacy recipes stay layered");
+  { std::ofstream v2(path); v2 << "SMART_MIXER_RECIPES 2\n4 10 20 2 Слои v2\n"; }
+  restarted.load();
+  check(restarted.recipes()[0].layered && restarted.recipes()[0].firstPump == 2, "v2 recipe is layered with its pump order");
+  Recipe mixed = restarted.recipes()[0]; mixed.layered = false; restarted.save(mixed);
+  RecipeStore reread(path); reread.load();
+  check(!reread.recipes()[0].layered && reread.recipes()[0].name == "Слои v2", "mixed mode survives restart");
+  { std::ofstream bad(path); bad << "SMART_MIXER_RECIPES 3\n4 10 20 2 7 Плохой\n"; }
+  rejected = false; try { reread.load(); } catch(const std::exception &) { rejected = true; }
+  check(rejected, "invalid recipe mode rejected");
+  ChannelStore channels(std::string(directory) + "/channels.txt");
+  channels.load(); check(channels.name(1).empty() && channels.name(2).empty(), "no channel names initially");
+  channels.save(1, "Гренадин"); channels.save(2, "Апельсиновый сок");
+  ChannelStore channelsRestarted(std::string(directory) + "/channels.txt"); channelsRestarted.load();
+  check(channelsRestarted.name(1) == "Гренадин" && channelsRestarted.name(2) == "Апельсиновый сок", "channel names survive restart");
+  channelsRestarted.save(1, ""); channels.load();
+  check(channels.name(1).empty() && channels.name(2) == "Апельсиновый сок", "channel name removal");
+  rejected = false; try { channels.save(2, "bad\tname"); } catch(const std::exception &) { rejected = true; }
+  check(rejected && channels.name(2) == "Апельсиновый сок", "control characters rejected without change");
+  { std::ofstream corrupt(std::string(directory) + "/channels.txt"); corrupt << "SMART_MIXER_CHANNELS 1\n3 x\n"; }
+  rejected = false; try { channels.load(); } catch(const std::exception &) { rejected = true; }
+  check(rejected && channels.name(2) == "Апельсиновый сок", "damaged channel file keeps names in memory");
+  unlink((std::string(directory) + "/channels.txt").c_str());
   unlink(path.c_str()); rmdir(directory);
 
   HeightSample curve[] = {{5, -100}, {50, -50}, {100, -10}};
@@ -107,9 +130,29 @@ int main() {
     tested.step(now + 2000, p, p == 0);
     check(tested.phase() == DrinkPhase::Error && tested.pump() == 0, "watchdog stops every phase");
   }
+  // Mixed mode: everything is poured at the rim, the shaft never lowers.
+  RecipeExecution mixedRun;
+  check(mixedRun.start(30, 2, 30, 300, 1500, curve, 3, 0, 1, false), "mixed mode allows a first portion below the curve");
+  position = 0; bool lowered = false, mixedPump1 = false, mixedPump2 = false;
+  for(uint32_t now = 0; now < 5000 && mixedRun.active(); ++now) {
+    mixedRun.heartbeat(30, now);
+    int direction = mixedRun.step(now, position, position == 0);
+    if(mixedRun.phase() == DrinkPhase::Lowering) lowered = true;
+    if(mixedRun.pump()) check(position == -10, "mixed mode pours only at the rim");
+    if(mixedRun.pump() == 1) mixedPump1 = true;
+    if(mixedRun.pump() == 2) { check(mixedPump1, "mixed mode keeps pump order"); mixedPump2 = true; }
+    position += direction;
+  }
+  check(!lowered && mixedPump1 && mixedPump2 && mixedRun.phase() == DrinkPhase::Done && position == -10, "mixed recipe completes at rim");
+  RecipeExecution mixedCapacity;
+  check(!mixedCapacity.start(31, 60, 60, 1000, 1000, curve, 3, 0, 1, false), "mixed mode still respects glass capacity");
+  uint32_t mode[5]; const uint32_t modeLimits[] = {UINT32_MAX, 1000, 1000, 2, 1};
+  check(parseRecipeValues("7 20 30 1 0", mode, modeLimits, 5) && mode[4] == 0, "API 3 mix command with mode");
+  check(!parseRecipeValues("7 20 30 1 2", mode, modeLimits, 5) && !parseRecipeValues("7 20 30 1", mode, modeLimits, 5),
+        "mode must be 0 or 1; API 2 form is parsed separately");
   uint32_t values[4]; const uint32_t limits[] = {UINT32_MAX, 1000, 1000, 2};
   check(parseRecipeValues("4294967295 20 30 2", values, limits, 4), "largest operation id");
   for(const char *bad : {"4294967296 20 30 1", "1 -5 30 1", "1 20 30 3", "1 20 30 1 extra", "1 20", "1 1001 0 1"})
     check(!parseRecipeValues(bad, values, limits, 4), "strict recipe command parser");
-  puts("Recipe storage, atomic publication, validation, following curve, pump order, completion, cancel and watchdog passed.");
+  puts("Recipe storage v1-v3, channel names, layered and mixed modes, pump order, completion, cancel and watchdog passed.");
 }

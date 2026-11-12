@@ -43,8 +43,13 @@ int main(int argc, char **argv) {
   smart_mixer::MixerUi ui;
   if(recipePath.empty()) recipePath = smoke ? "/tmp/smart-mixer-ui-smoke-recipes.txt" : defaultRecipes();
   RecipeStore recipes(recipePath);
+  // Ingredient names live next to the recipes file.
+  auto recipeSlash = recipePath.find_last_of('/');
+  ChannelStore channels((recipeSlash == std::string::npos ? std::string(".") : recipePath.substr(0, recipeSlash)) +
+                        (smoke ? "/smart-mixer-ui-smoke-channels.txt" : "/channels.txt"));
   std::string storageError;
-  struct Context { UsbController *usb; smart_mixer::MixerUi *ui; RecipeStore *store; bool writable; } context{&usb, &ui, &recipes, false};
+  struct Context { UsbController *usb; smart_mixer::MixerUi *ui; RecipeStore *store; ChannelStore *channels;
+                   bool writable, channelsWritable; } context{&usb, &ui, &recipes, &channels, false, false};
   ui.create([](void *p, const smart_mixer::Command &c) {
     auto *ctx = static_cast<Context *>(p);
     ctx->usb->handle(c, ctx->ui->port());
@@ -53,6 +58,19 @@ int main(int argc, char **argv) {
     if(!smoke) { auto slash = recipePath.find_last_of('/'); if(slash != std::string::npos) directories(recipePath.substr(0, slash)); }
     recipes.load(); context.writable = true; ui.setRecipes(recipes.recipes());
   } catch(const std::exception &e) { storageError = e.what(); ui.setRecipeMessage(e.what()); }
+  try {
+    channels.load(); context.channelsWritable = true;
+    ui.setChannelNames(channels.name(1), channels.name(2));
+  } catch(const std::exception &e) { ui.setChannelMessage(e.what()); }
+  ui.setChannelHandler([](void *p, int pump, const std::string &name) {
+    auto *ctx = static_cast<Context *>(p);
+    try {
+      if(!ctx->channelsWritable) throw std::runtime_error("Файл каналов недоступен. Исправьте его и перезапустите программу");
+      ctx->channels->save(pump, name);
+      ctx->ui->setChannelNames(ctx->channels->name(1), ctx->channels->name(2));
+      ctx->ui->setChannelMessage(name.empty() ? "Название удалено" : "Название сохранено");
+    } catch(const std::exception &e) { ctx->ui->setChannelMessage(e.what()); }
+  }, &context);
   ui.setRecipeHandler([](void *p, smart_mixer::RecipeAction action, const smart_mixer::Recipe &recipe) {
     auto *ctx = static_cast<Context *>(p);
     try {
@@ -90,14 +108,14 @@ int main(int argc, char **argv) {
     }
     lv_timer_handler();
     if(smoke) {
-      if(frames % 10 == 9 && frames < 70) {
+      if(frames % 10 == 9 && frames < 80) {
         auto *image = SDL_CreateRGBSurfaceWithFormat(0, 800, 480, 32, SDL_PIXELFORMAT_ARGB8888);
         auto *renderer = static_cast<SDL_Renderer *>(lv_sdl_window_get_renderer(display));
         if(image && SDL_RenderReadPixels(renderer, nullptr, SDL_PIXELFORMAT_ARGB8888,
                                          image->pixels, image->pitch) == 0) {
           char path[100];
-          if(frames < 30) snprintf(path, sizeof(path), "/tmp/smart-mixer-ui-page-%u.bmp", frames / 10);
-          else snprintf(path, sizeof(path), "/tmp/smart-mixer-ui-tab-%u.bmp", frames / 10 - 3);
+          if(frames < 40) snprintf(path, sizeof(path), "/tmp/smart-mixer-ui-page-%u.bmp", frames / 10);
+          else snprintf(path, sizeof(path), "/tmp/smart-mixer-ui-tab-%u.bmp", frames / 10 - 4);
           SDL_SaveBMP(image, path);
         }
         if(image) SDL_FreeSurface(image);
@@ -105,8 +123,9 @@ int main(int argc, char **argv) {
       if(frames == 0) ui.showMain();
       if(frames == 10) ui.showRecipes();
       if(frames == 20) ui.showNewRecipe();
-      if(frames >= 30 && frames % 10 == 0) ui.showTab(frames / 10 - 3);
-      if(++frames == 75) break;
+      if(frames == 30) ui.showCare();
+      if(frames >= 40 && frames % 10 == 0) ui.showTab(frames / 10 - 4);
+      if(++frames == 85) break;
     }
     SDL_Delay(5);
   }
@@ -117,7 +136,7 @@ int main(int argc, char **argv) {
        UsbController::encode({Action::Move, 0, -10}) != "a -10") return 2;
     try { UsbController::encode({Action::Move, 0, 651}); return 3; }
     catch(const std::exception &) {}
-    puts("LVGL: all four tabs rendered; USB action mapping checked; no hardware accessed.");
+    puts("LVGL: main, recipes, editor, care page and four tabs rendered; USB action mapping checked; no hardware accessed.");
   }
   lv_sdl_quit();
   lv_deinit();

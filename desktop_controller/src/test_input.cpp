@@ -139,8 +139,18 @@ int main() {
   }
   check(order, "first pump selection replaces height table selection");
   lv_dropdown_set_selected(order, 1);
+  lv_obj_t *modeDropdown = nullptr;
+  for(uint32_t i = 0; i < lv_obj_get_child_count(ui.recipeEditorRoot()) && !modeDropdown; ++i) {
+    auto *child = lv_obj_get_child(ui.recipeEditorRoot(), i);
+    if(lv_obj_check_type(child, &lv_dropdown_class) && child != order) modeDropdown = child;
+  }
+  check(modeDropdown && lv_dropdown_get_selected(modeDropdown) == 0, "new recipe is layered by default");
   auto *save = findButton(lv_screen_active(), "Сохранить рецепт"); lv_obj_send_event(save, LV_EVENT_CLICKED, nullptr);
-  check(saved.size() == 1 && saved[0].name == "Лимонад" && saved[0].ml1 == 20 && saved[0].ml2 == 30 && saved[0].firstPump == 2, "save recipe with chosen first pump");
+  check(saved.size() == 1 && saved[0].name == "Лимонад" && saved[0].ml1 == 20 && saved[0].ml2 == 30 && saved[0].firstPump == 2 &&
+        saved[0].layered, "save recipe with chosen first pump");
+  lv_dropdown_set_selected(modeDropdown, 1); lv_obj_send_event(save, LV_EVENT_CLICKED, nullptr);
+  check(saved.size() == 2 && !saved[1].layered, "mixed mode saved from editor");
+  saved.pop_back(); recipeActions.pop_back(); lv_dropdown_set_selected(modeDropdown, 0);
   lv_textarea_set_text(recipeFields[1], "0"); lv_textarea_set_text(recipeFields[2], "0");
   lv_obj_send_event(save, LV_EVENT_CLICKED, nullptr); check(saved.size() == 1, "zero-volume recipe rejected");
   saved[0].id = 1; ui.setRecipes(saved); ui.setCooking(true, false, "ready", 0); ui.showRecipes();
@@ -149,6 +159,38 @@ int main() {
   auto *confirm = findButton(lv_layer_top(), "Подтвердить"); check(confirm, "recipe confirmation modal");
   lv_obj_send_event(confirm, LV_EVENT_CLICKED, nullptr);
   check(recipeActions.back() == RecipeAction::Prepare, "confirmed prepare callback");
+  // Priming and washing page.
+  std::vector<std::pair<int, std::string>> names;
+  ui.setChannelHandler([](void *p, int pump, const std::string &name) {
+    static_cast<std::vector<std::pair<int, std::string>> *>(p)->push_back({pump, name});
+  }, &names);
+  ui.setChannelNames("Гренадин", "");
+  ui.showMain(); pump();
+  auto *care = findButton(lv_screen_active(), "Прокачка и промывка"); check(care, "main menu care card");
+  lv_obj_send_event(care, LV_EVENT_CLICKED, nullptr); pump();
+  check(lv_obj_is_visible(ui.careRoot()) && lv_obj_is_visible(backButton), "care page with back button");
+  lv_obj_t *channel = nullptr;
+  for(uint32_t i = 0; i < lv_obj_get_child_count(ui.careRoot()); ++i) {
+    auto *child = lv_obj_get_child(ui.careRoot(), i);
+    if(lv_obj_check_type(child, &lv_dropdown_class)) channel = child;
+  }
+  check(channel && strstr(lv_dropdown_get_options(channel), "Гренадин"), "ingredient names shown for channels");
+  lv_dropdown_set_selected(channel, 1); lv_obj_send_event(channel, LV_EVENT_VALUE_CHANGED, nullptr);
+  size_t before = commands.size();
+  lv_obj_send_event(findButton(ui.careRoot(), "Начать прокачку"), LV_EVENT_CLICKED, nullptr);
+  check(commands.size() == before + 1 && commands.back().action == Action::Prime && commands.back().pump == 2, "prime selected channel");
+  lv_obj_send_event(findButton(ui.careRoot(), "Жидкость пошла"), LV_EVENT_CLICKED, nullptr);
+  check(commands.back().action == Action::Stop, "prime is stopped by the user");
+  lv_obj_send_event(findButton(ui.careRoot(), "Раствором"), LV_EVENT_CLICKED, nullptr);
+  check(commands.back().action == Action::Stop, "washing requires confirmation");
+  auto *run = findButton(lv_layer_top(), "Выполнить"); check(run, "washing confirmation modal");
+  lv_obj_send_event(run, LV_EVENT_CLICKED, nullptr);
+  check(commands.back().action == Action::Dose && commands.back().pump == 2 && commands.back().value == 50, "washing doses the selected channel");
+  std::vector<lv_obj_t *> careFields; collect(ui.careRoot(), careFields);
+  check(careFields.size() == 2, "care fields: ingredient name and wash volume");
+  lv_textarea_set_text(careFields[0], "  Сок  ");
+  lv_obj_send_event(findButton(ui.careRoot(), "Сохранить"), LV_EVENT_CLICKED, nullptr);
+  check(names.size() == 1 && names[0].first == 2 && names[0].second == "Сок", "ingredient name saved for selected pump");
   puts("SDL keyboard: all fields, no duplicate digits, filtering, decimals, editing, ranges and typed dose passed.");
   lv_sdl_quit(); lv_deinit();
 }

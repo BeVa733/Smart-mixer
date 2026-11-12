@@ -83,6 +83,24 @@ int main() {
   length = snprintf(report, sizeof(report), "MIX %lu DONE 100 NONE\n", next);
   write(master, report, length); usleep(2000); usb.poll();
   check(!usb.cooking() && usb.progress() == 100, "DONE confirms recipe completion");
+  Recipe mixed = recipe; mixed.layered = false;
+  bool rejectedMixed = false;
+  try { usb.prepare(mixed); } catch(const std::exception &) { rejectedMixed = true; }
+  check(rejectedMixed && readPeer(master).empty(), "API 2 firmware cannot run a mixed recipe");
+  reportCalibration("MIX_API 3"); check(usb.recipeReady(), "API 3 capability");
+  usb.prepare(mixed); wire = readPeer(master);
+  unsigned layered = 9;
+  check(sscanf(wire.c_str(), "mix %lu %u %u %u %u", &next, &ml1, &ml2, &profile, &layered) == 5 &&
+        ml1 == 20 && ml2 == 30 && profile == 2 && layered == 0, "API 3 sends the recipe mode");
+  length = snprintf(report, sizeof(report), "MIX %lu SECOND 60 NONE\n", next);
+  write(master, report, length); usleep(2000); usb.poll();
+  check(usb.cookingMessage().find("компонент") != std::string::npos, "mixed recipe progress is not described as layers");
+  length = snprintf(report, sizeof(report), "MIX %lu DONE 100 NONE\n", next);
+  write(master, report, length); usleep(2000); usb.poll(); check(!usb.cooking(), "mixed DONE");
+  usb.prepare(recipe); wire = readPeer(master);
+  check(sscanf(wire.c_str(), "mix %lu %u %u %u %u", &next, &ml1, &ml2, &profile, &layered) == 5 && layered == 1, "API 3 layered recipe");
+  length = snprintf(report, sizeof(report), "MIX %lu DONE 100 NONE\n", next);
+  write(master, report, length); usleep(2000); usb.poll(); check(!usb.cooking(), "layered DONE on API 3");
   usb.handle({Action::Disconnect, 0, 0}, name);
   check(readPeer(master) == "s\n", "disconnect best effort stop");
   check(!usb.connected(), "disconnected");

@@ -24,7 +24,7 @@ UsbController::~UsbController() {
 }
 void UsbController::closePort() {
   if(fd_ >= 0) ::close(fd_);
-  fd_ = -1; working_ = false; recipeApi_ = false; homed_ = false; buffer_.clear();
+  fd_ = -1; working_ = false; recipeApi_ = 0; homed_ = false; buffer_.clear();
   pumpCalibration_ = heightCalibration_ = false;
   if(cooking_) cookingMessage_ = "Связь потеряна. Проверьте остановку устройства";
   cooking_ = false;
@@ -123,8 +123,9 @@ void UsbController::line(const std::string &s) {
   if(s.find("DIAG session=") == 0) {
     working_ = false; message_ = "Diagnostic firmware: upload desktop_usb";
   }
-  if(s == "MIX_API 2") recipeApi_ = true;
-  if(s.find("SMART MIXER:") == 0) { homed_ = false; recipeApi_ = false; }
+  if(s == "MIX_API 2") recipeApi_ = 2;
+  if(s == "MIX_API 3") recipeApi_ = 3;
+  if(s.find("SMART MIXER:") == 0) { homed_ = false; recipeApi_ = 0; }
   if(s == "Homing: готов" || s == "Homing завершён") homed_ = true;
   if(s == "Homing: не выполнен" || s == "Homing: движение вверх..." ||
      s == "Ошибка: верхний концевик не найден") homed_ = false;
@@ -147,6 +148,9 @@ void UsbController::line(const std::string &s) {
           error == "BUSY" ? "Arduino занята другой операцией" :
           "Приготовление остановлено. Проверьте привод, концевик и калибровку";
       }
+      else if(!cookingLayered_) cookingMessage_ = phase == "POSITIONING" ? "Выставляю шток у края рюмки" :
+        phase == "FIRST" ? "Наливаю первый компонент у края" :
+        phase == "SECOND" ? "Наливаю второй компонент у края" : "Налив завершён. Возвращаю шток к краю";
       else cookingMessage_ = phase == "POSITIONING" ? "Выставляю шток у края рюмки" : phase == "LOWERING" ? "Первый слой готов. Опускаю шток к жидкости" :
         phase == "FIRST" ? "Наливаю первый слой со штоком у края" :
         phase == "SECOND" ? "Наливаю второй слой; шток следует уровню" : "Налив завершён. Поднимаю шток";
@@ -198,10 +202,18 @@ void UsbController::poll() {
 }
 void UsbController::prepare(const smart_mixer::Recipe &r) {
   if(!recipeReady() || cooking_ || !smart_mixer::validRecipe(r)) throw std::runtime_error("Arduino не готова к приготовлению");
+  if(!r.layered && recipeApi_ < 3)
+    throw std::runtime_error("Для рецепта «смешать» загрузите новую прошивку desktop_usb (MIX_API 3)");
   uint32_t previous = operation_;
   do { operation_ = std::random_device{}(); } while(!operation_ || operation_ == previous);
-  char command[100]; snprintf(command, sizeof(command), "mix %lu %u %u %u", static_cast<unsigned long>(operation_), r.ml1, r.ml2, r.firstPump);
+  char command[100];
+  // API 2 firmware only understands the 4-argument (always layered) form.
+  if(recipeApi_ >= 3)
+    snprintf(command, sizeof(command), "mix %lu %u %u %u %u", static_cast<unsigned long>(operation_), r.ml1, r.ml2, r.firstPump, r.layered ? 1U : 0U);
+  else
+    snprintf(command, sizeof(command), "mix %lu %u %u %u", static_cast<unsigned long>(operation_), r.ml1, r.ml2, r.firstPump);
   send(command);
+  cookingLayered_ = r.layered;
   cooking_ = true; progress_ = 0; lastHeartbeat_ = lastReport_ = nowMs();
   message_ = "Приготовление: запрос отправлен";
   cookingMessage_ = "Ожидаю подтверждения Arduino";

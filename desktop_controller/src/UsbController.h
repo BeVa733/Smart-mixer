@@ -14,7 +14,7 @@ public:
   const std::string &log() const { return log_; }
   static std::string encode(const smart_mixer::Command &);
   void prepare(const smart_mixer::Recipe &recipe);
-  bool recipeReady() const { return working_ && recipeApi_ && homed_ && !calibrating(); }
+  bool recipeReady() const { return working_ && recipeApi_ >= 2 && homed_ && !calibrating(); }
   bool cooking() const { return cooking_; }
   bool calibrating() const { return pumpCalibration_ || heightCalibration_; }
   int progress() const { return progress_; }
@@ -22,7 +22,8 @@ public:
 private:
   int fd_ = -1;
   bool working_ = false;
-  bool recipeApi_ = false, cooking_ = false, homed_ = false;
+  int recipeApi_ = 0; // 2: layered only, 3: layered or mixed
+  bool cooking_ = false, homed_ = false, cookingLayered_ = true;
   bool pumpCalibration_ = false, heightCalibration_ = false;
   uint32_t operation_ = 0;
   uint64_t lastHeartbeat_ = 0, lastReport_ = 0;

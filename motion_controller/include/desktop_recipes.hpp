@@ -42,8 +42,14 @@ bool handleDesktopRecipeCommand(const String &command) {
     return true;
   }
   if(command.startsWith("mix ")) {
-    uint32_t v[4]{}; const uint32_t limits[] = {UINT32_MAX, 1000, 1000, 2};
-    if(!smart_mixer::parseRecipeValues(command.c_str() + 4, v, limits, 4) || !v[0] || !v[3]) return true;
+    // API 3: mix id ml1 ml2 firstPump layered(1)/mixed(0). API 2 form without the mode is layered.
+    uint32_t v[5]{}; const uint32_t limits[] = {UINT32_MAX, 1000, 1000, 2, 1};
+    if(!smart_mixer::parseRecipeValues(command.c_str() + 4, v, limits, 5)) {
+      for(auto &value : v) value = 0;
+      if(!smart_mixer::parseRecipeValues(command.c_str() + 4, v, limits, 4)) return true;
+      v[4] = 1;
+    }
+    if(!v[0] || !v[3]) return true;
     if(recipeExecution.active()) {
       if(recipeExecution.id() == v[0]) reportRecipe();
       else reportRecipe(v[0], "ERROR", 0, "BUSY");
@@ -62,7 +68,7 @@ bool handleDesktopRecipeCommand(const String &command) {
     unsigned count = calibration.heightPointCount();
     const auto *stored = calibration.heightPoints();
     for(unsigned i = 0; i < count && i < 20; ++i) { points[i].ml = stored[i].volumeMl; points[i].steps = stored[i].steps; }
-    if(!recipeExecution.start(v[0], v[1], v[2], static_cast<uint32_t>(duration1), static_cast<uint32_t>(duration2), points, count, millis(), v[3])) {
+    if(!recipeExecution.start(v[0], v[1], v[2], static_cast<uint32_t>(duration1), static_cast<uint32_t>(duration2), points, count, millis(), v[3], v[4] != 0)) {
       reportRecipe(v[0], "ERROR", 0, "CALIBRATION_OR_DUPLICATE"); return true;
     }
     stopPumps(); recipePump = 0; mode = ControlMode::Idle; reportRecipe(); return true;

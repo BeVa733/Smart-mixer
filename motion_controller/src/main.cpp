@@ -114,7 +114,7 @@ void printMenu() {
 
 void printStatus() {
 #ifdef SMART_MIXER_MANUAL_HOME
-  Serial.println(F("MIX_API 2"));
+  Serial.println(F("MIX_API 3"));
 #endif
   Serial.println(F("\n--- Состояние ---"));
   Serial.print(F("Homing: "));

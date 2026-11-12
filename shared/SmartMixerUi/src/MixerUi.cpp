@@ -51,7 +51,8 @@ void MixerUi::create(CommandHandler handler, void *context) {
   for(auto *tab : {pumps, motion, cal, link}) lv_obj_set_style_pad_all(tab, 12, 0);
   for(int p = 1; p <= 2; ++p) {
     int x = (p - 1) * 388;
-    label(pumps, p == 1 ? "НАСОС 1 / D8" : "НАСОС 2 / D10", x, 0, 350);
+    pumpTitles_[p-1] = label(pumps, "", x, 0, 370);
+    lv_label_set_long_mode(pumpTitles_[p-1], LV_LABEL_LONG_DOT);
     label(pumps, "Порция, мл", x, 38, 200);
     volume_[p-1].create(pumps, x, 70, 1, 1000, 50);
     button(pumps, "Налить", x, 135, 230, Action::Dose, p);
@@ -97,12 +98,14 @@ void MixerUi::create(CommandHandler handler, void *context) {
   lv_obj_set_style_text_font(log_, &mixer_font_16, 0);
   lv_label_set_text(log_, "No replies yet.");
   createRecipePages(screen);
+  createCarePage(screen);
   back_ = button(screen, LV_SYMBOL_LEFT, 16, 8, 48, Action::MainMenu, 0, false);
   lv_obj_set_style_text_font(lv_obj_get_child(back_, 0), &lv_font_montserrat_28, 0);
   statusButton_ = button(screen, "Состояние", 80, 8, 170, Action::Status, 0, false);
   stopButton_ = button(screen, "Стоп", 620, 8, 164, Action::Stop, 0, false);
   lv_obj_set_style_bg_color(stopButton_, lv_color_hex(0xBA384B), 0);
   setConnection(false, false, "USB disconnected");
+  refreshChannels();
   showMain();
 }
 
@@ -117,12 +120,41 @@ void MixerUi::dispatch(Action a, int p) {
     showPage(tabs_); return;
   }
   if(a == Action::Recipes) { showPage(catalog_); updateRecipeDetails(); return; }
+  if(a == Action::Care) {
+    if(cooking_) { showNotice("Сначала завершите или отмените приготовление"); return; }
+    showPage(care_); return;
+  }
+  if(a == Action::SaveChannelName) {
+    if(!channelHandler_) return;
+    std::string name = lv_textarea_get_text(channelName_);
+    auto first = name.find_first_not_of(' '), last = name.find_last_not_of(' ');
+    name = first == std::string::npos ? "" : name.substr(first, last - first + 1);
+    for(unsigned char c : name) if(c < 32 || c == 127) { setChannelMessage("Недопустимые символы в названии"); return; }
+    channelHandler_(channelContext_, static_cast<int>(lv_dropdown_get_selected(careChannel_)) + 1, name);
+    return;
+  }
+  if(a == Action::CarePrime || a == Action::WashSolution || a == Action::WashWater) {
+    if(cooking_) { showNotice("Сначала завершите или отмените приготовление"); return; }
+    int pump = static_cast<int>(lv_dropdown_get_selected(careChannel_)) + 1;
+    if(a == Action::CarePrime) { request({Action::Prime, pump, 0}); return; }
+    float ml = 0;
+    if(!washMl_.value(ml)) { showNotice("Введите объём промывки: 1-1000 мл"); return; }
+    pending_ = {Action::Dose, pump, ml};
+    char text[300];
+    snprintf(text, sizeof(text), a == Action::WashSolution ?
+      "%s\nОпустите входную трубку в моющий раствор, под выход поставьте пустую ёмкость.\nБудет прокачано %.0f мл. После раствора промойте канал чистой водой." :
+      "%s\nОпустите входную трубку в чистую воду, под выход поставьте пустую ёмкость.\nБудет прокачано %.0f мл.",
+      pumpName(pump).c_str(), ml);
+    askConfirmation(a == Action::WashSolution ? "Промывка раствором" : "Промывка водой", text);
+    return;
+  }
   if(a == Action::NewRecipe || a == Action::EditRecipe) {
     if(cooking_) { showNotice("Сначала завершите или отмените приготовление"); return; }
     const Recipe *r = a == Action::EditRecipe ? selectedRecipe() : nullptr;
     if(a == Action::EditRecipe && !r) return;
     editingId_ = r ? r->id : 0;
     lv_dropdown_set_selected(firstPump_, r ? r->firstPump - 1 : 0);
+    lv_dropdown_set_selected(recipeMode_, r && !r->layered ? 1 : 0);
     lv_textarea_set_text(recipeName_, r ? r->name.c_str() : "");
     char number[12];
     snprintf(number, sizeof(number), "%u", r ? r->ml1 : 50);
@@ -143,6 +175,7 @@ void MixerUi::dispatch(Action a, int p) {
     }
     r.ml1 = ml1; r.ml2 = ml2;
     r.firstPump = lv_dropdown_get_selected(firstPump_) + 1;
+    r.layered = lv_dropdown_get_selected(recipeMode_) == 0;
     if(!validRecipe(r)) {
       lv_label_set_text(editorMessage_, "Введите название и ненулевой объём хотя бы одного насоса"); return;
     }
@@ -159,8 +192,10 @@ void MixerUi::dispatch(Action a, int p) {
     auto *box = lv_msgbox_create(nullptr);
     lv_obj_set_style_text_font(box, &mixer_font_16, 0);
     lv_msgbox_add_title(box, a == Action::RemoveRecipe ? "Удалить рецепт?" : "Начать приготовление?");
-    char details[240];
-    snprintf(details, sizeof(details), "%s\nНасос 1: %u мл; насос 2: %u мл\nВсего: %u мл. Первым: насос %u.%s", r->name.c_str(), r->ml1, r->ml2, r->ml1 + r->ml2, r->firstPump,
+    char details[400];
+    snprintf(details, sizeof(details), "%s\n%s: %u мл\n%s: %u мл\nВсего: %u мл. %s, первым — насос %u.%s", r->name.c_str(),
+      pumpName(1).c_str(), r->ml1, pumpName(2).c_str(), r->ml2, r->ml1 + r->ml2,
+      r->layered ? "Слоями" : "Смешать у края", r->firstPump,
       a == Action::PrepareRecipe ? "\nПоставьте подходящую ёмкость. Проверьте жидкости в трубках." : "");
     lv_msgbox_add_text(box, details); cancelButton(box);
     auto *ok = lv_msgbox_add_footer_button(box, "Подтвердить");
@@ -209,20 +244,36 @@ void MixerUi::setConnection(bool connected, bool working, const char *text) {
   (void)connected;
   working_ = working;
   lv_label_set_text(connection_, text);
+  if(careStatus_) lv_label_set_text(careStatus_, working ? text :
+    "Сначала: Сервисный режим, USB / Журнал — Подключить; затем Привод — Найти верхний ноль");
   for(unsigned i = 0; i < controlCount_; ++i) {
     if(working_) lv_obj_remove_state(controls_[i], LV_STATE_DISABLED);
     else lv_obj_add_state(controls_[i], LV_STATE_DISABLED);
   }
 }
 void MixerUi::setStatus(const char *text) { lv_label_set_text(status_, text); }
-void MixerUi::setLog(const char *text) { lv_label_set_text(log_, text); }
+void MixerUi::setLog(const char *text) {
+  lv_label_set_text(log_, text);
+  if(!careReply_) return;
+  // Last Arduino reply, so priming/washing results are visible without the service log.
+  std::string log = text, last;
+  size_t end = log.size();
+  while(end > 0) {
+    size_t start = log.rfind('\n', end - 1);
+    start = start == std::string::npos ? 0 : start + 1;
+    if(log.compare(start, 2, "< ") == 0) { last = log.substr(start + 2, end - start - 2); break; }
+    if(start == 0) break;
+    end = start - 1;
+  }
+  lv_label_set_text(careReply_, last.empty() ? "" : ("Arduino: " + last).c_str());
+}
 void MixerUi::setPort(const char *text) { lv_textarea_set_text(port_, text); }
 const char *MixerUi::port() const { return lv_textarea_get_text(port_); }
 void MixerUi::showTab(unsigned i) { showPage(tabs_); lv_tabview_set_active(tabs_, i, LV_ANIM_OFF); }
 
 void MixerUi::showPage(lv_obj_t *page) {
   visiblePage_ = page;
-  for(auto *p : {main_, catalog_, editor_, tabs_}) {
+  for(auto *p : {main_, catalog_, editor_, care_, tabs_}) {
     if(p == page) lv_obj_remove_flag(p, LV_OBJ_FLAG_HIDDEN);
     else lv_obj_add_flag(p, LV_OBJ_FLAG_HIDDEN);
   }
@@ -258,11 +309,11 @@ void MixerUi::createRecipePages(lv_obj_t *screen) {
   lv_obj_set_style_radius(main_, 0, 0);
   lv_obj_set_style_bg_color(main_, lv_color_hex(0x101827), 0);
   lv_obj_remove_flag(main_, LV_OBJ_FLAG_SCROLLABLE);
-  const char *titles[] = {"Приготовить напиток", "Добавить рецепт", "Сервисный режим"};
-  const Action actions[] = {Action::Recipes, Action::NewRecipe, Action::Service};
-  const uint32_t colors[] = {0x163A42, 0x3E3045, 0x293C53};
-  for(unsigned i = 0; i < 3; ++i) {
-    auto *card = button(main_, titles[i], i * 260, 0, 248, actions[i], 0, false);
+  const char *titles[] = {"Приготовить напиток", "Добавить рецепт", "Прокачка и промывка", "Сервисный режим"};
+  const Action actions[] = {Action::Recipes, Action::NewRecipe, Action::Care, Action::Service};
+  const uint32_t colors[] = {0x163A42, 0x3E3045, 0x2D4434, 0x293C53};
+  for(unsigned i = 0; i < 4; ++i) {
+    auto *card = button(main_, titles[i], i * 194, 0, 182, actions[i], 0, false);
     lv_obj_set_height(card, 448);
     lv_obj_set_style_radius(card, 18, 0);
     lv_obj_set_style_pad_all(card, 0, 0);
@@ -271,7 +322,7 @@ void MixerUi::createRecipePages(lv_obj_t *screen) {
     // Future photos can be assigned as the button's LVGL background image;
     // the caption stays above the image and remains part of the same hit target.
     auto *caption = lv_obj_get_child(card, 0);
-    lv_obj_set_width(caption, 224);
+    lv_obj_set_width(caption, 162);
     lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(caption, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_bg_color(caption, lv_color_hex(0x000000), 0);
@@ -295,16 +346,24 @@ void MixerUi::createRecipePages(lv_obj_t *screen) {
   label(editor_, "Название", 0, 0, 740);
   recipeName_ = lv_textarea_create(editor_); lv_obj_set_pos(recipeName_, 0, 28); lv_obj_set_size(recipeName_, 735, 48);
   lv_textarea_set_one_line(recipeName_, true); lv_textarea_set_max_length(recipeName_, 32);
-  label(editor_, "Насос 1, мл", 0, 90, 330); label(editor_, "Насос 2, мл", 385, 90, 330);
+  editorPumpLabels_[0] = label(editor_, "", 0, 90, 370);
+  editorPumpLabels_[1] = label(editor_, "", 385, 90, 350);
+  for(auto *l : editorPumpLabels_) lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
   recipeMl1_.create(editor_, 0, 122, 0, 1000, 50);
   recipeMl2_.create(editor_, 385, 122, 0, 1000, 50);
+  label(editor_, "Режим:", 0, 250, 320);
+  // Created before firstPump_: tests and adapters treat the last dropdown as the pump order.
+  recipeMode_ = lv_dropdown_create(editor_); lv_obj_set_pos(recipeMode_, 385, 238); lv_obj_set_size(recipeMode_, 350, 44);
+  lv_dropdown_set_options(recipeMode_, "Слоями\nСмешать у края"); lv_dropdown_set_symbol(recipeMode_, "v");
+  lv_obj_set_style_text_font(recipeMode_, &mixer_font_16, 0);
+  lv_obj_set_style_text_font(lv_dropdown_get_list(recipeMode_), &mixer_font_16, 0);
   label(editor_, "Первым наливает:", 0, 195, 320);
   firstPump_ = lv_dropdown_create(editor_); lv_obj_set_pos(firstPump_, 385, 183); lv_obj_set_size(firstPump_, 350, 44);
   lv_dropdown_set_options(firstPump_, "Насос 1\nНасос 2"); lv_dropdown_set_symbol(firstPump_, "v");
   lv_obj_set_style_text_font(firstPump_, &mixer_font_16, 0);
   lv_obj_set_style_text_font(lv_dropdown_get_list(firstPump_), &mixer_font_16, 0);
-  editorMessage_ = label(editor_, "0 мл — не использовать этот насос", 0, 240, 735);
-  button(editor_, "Сохранить рецепт", 0, 280, 735, Action::SaveRecipe, 0, false);
+  editorMessage_ = label(editor_, "0 мл — не использовать этот насос", 0, 292, 735);
+  button(editor_, "Сохранить рецепт", 0, 322, 735, Action::SaveRecipe, 0, false);
   setRecipes({});
 }
 void MixerUi::setRecipes(const std::vector<Recipe> &r) {
@@ -327,8 +386,10 @@ const Recipe *MixerUi::selectedRecipe() const {
 }
 void MixerUi::updateRecipeDetails() {
   auto *r = selectedRecipe();
-  char text[180];
-  if(r) snprintf(text, sizeof(text), "Насос 1: %u мл    Насос 2: %u мл    Всего: %u мл\nПервым: насос %u. Калибровка уровня общая", r->ml1, r->ml2, r->ml1 + r->ml2, r->firstPump);
+  char text[300];
+  if(r) snprintf(text, sizeof(text), "%s: %u мл    %s: %u мл    Всего: %u мл\n%s, первым — насос %u",
+    pumpName(1).c_str(), r->ml1, pumpName(2).c_str(), r->ml2, r->ml1 + r->ml2,
+    r->layered ? "Слоями: шток следует уровню" : "Смешать: налив у края рюмки", r->firstPump);
   else snprintf(text, sizeof(text), "Пока нет рецептов. Добавьте первый с главного экрана.");
   lv_label_set_text(recipeDetails_, text);
   for(unsigned i = 0; i < 3; ++i) {
@@ -350,4 +411,78 @@ void MixerUi::setCooking(bool ready, bool busy, const char *message, int percent
   updateRecipeDetails();
   updateNavigation();
 }
+
+void MixerUi::askConfirmation(const char *title, const char *text) {
+  auto *box = lv_msgbox_create(nullptr);
+  lv_obj_set_style_text_font(box, &mixer_font_16, 0);
+  lv_msgbox_add_title(box, title);
+  lv_msgbox_add_text(box, text);
+  cancelButton(box);
+  auto *ok = lv_msgbox_add_footer_button(box, "Выполнить");
+  lv_obj_set_style_text_font(ok, &mixer_font_16, 0);
+  lv_obj_set_user_data(ok, box);
+  lv_obj_add_event_cb(ok, confirmed, LV_EVENT_CLICKED, this);
+}
+std::string MixerUi::pumpName(int pump) const {
+  std::string name = pump == 1 ? "Насос 1" : "Насос 2";
+  const std::string &ingredient = channels_[pump == 1 ? 0 : 1];
+  return ingredient.empty() ? name : name + " — " + ingredient;
+}
+void MixerUi::createCarePage(lv_obj_t *screen) {
+  care_ = lv_obj_create(screen); lv_obj_set_pos(care_, 0, 64); lv_obj_set_size(care_, 800, 416);
+  lv_obj_set_style_text_font(care_, &mixer_font_16, 0);
+  label(care_, "Канал", 0, 12, 100);
+  careChannel_ = lv_dropdown_create(care_); lv_obj_set_pos(careChannel_, 70, 0); lv_obj_set_size(careChannel_, 300, 44);
+  lv_dropdown_set_symbol(careChannel_, "v");
+  lv_obj_set_style_text_font(careChannel_, &mixer_font_16, 0);
+  lv_obj_set_style_text_font(lv_dropdown_get_list(careChannel_), &mixer_font_16, 0);
+  lv_obj_add_event_cb(careChannel_, careChannelChanged, LV_EVENT_VALUE_CHANGED, this);
+  channelName_ = lv_textarea_create(care_); lv_obj_set_pos(channelName_, 385, 0); lv_obj_set_size(channelName_, 175, 44);
+  lv_textarea_set_one_line(channelName_, true); lv_textarea_set_max_length(channelName_, 24);
+  lv_textarea_set_placeholder_text(channelName_, "Ингредиент");
+  button(care_, "Сохранить", 570, 0, 165, Action::SaveChannelName, 0, false);
+  lv_obj_set_height(lv_obj_get_child(care_, -1), 44);
+  channelMessage_ = label(care_, "", 0, 50, 735);
+  label(care_, "Прокачка — после замены ёмкости: подставьте стакан, запустите и остановите, когда жидкость пойдёт без пузырей.", 0, 76, 735);
+  button(care_, "Начать прокачку", 0, 124, 300, Action::CarePrime);
+  button(care_, "Жидкость пошла", 315, 124, 300, Action::Stop, 0, false);
+  label(care_, "Промывка: сначала моющим раствором, затем чистой водой. Объём, мл:", 0, 186, 735);
+  washMl_.create(care_, 0, 216, 1, 1000, 50);
+  button(care_, "Раствором", 235, 216, 160, Action::WashSolution);
+  button(care_, "Водой", 405, 216, 150, Action::WashWater);
+  button(care_, "Остановить насос", 565, 216, 170, Action::Stop, 0, false);
+  careStatus_ = label(care_, "", 0, 282, 735);
+  lv_label_set_long_mode(careStatus_, LV_LABEL_LONG_DOT);
+  careReply_ = label(care_, "", 0, 332, 735);
+  lv_label_set_long_mode(careReply_, LV_LABEL_LONG_DOT);
+}
+void MixerUi::careChannelChanged(lv_event_t *e) {
+  auto *self = static_cast<MixerUi *>(lv_event_get_user_data(e));
+  lv_textarea_set_text(self->channelName_, self->channels_[lv_dropdown_get_selected(self->careChannel_) ? 1 : 0].c_str());
+  self->setChannelMessage("");
+}
+void MixerUi::refreshChannels() {
+  static const char *const titles[] = {"НАСОС 1 / D8", "НАСОС 2 / D10"};
+  for(int p = 0; p < 2; ++p) {
+    std::string title = titles[p];
+    if(!channels_[p].empty()) title += " — " + channels_[p];
+    lv_label_set_text(pumpTitles_[p], title.c_str());
+    lv_label_set_text(editorPumpLabels_[p], (pumpName(p + 1) + ", мл").c_str());
+  }
+  const std::string options = pumpName(1) + "\n" + pumpName(2);
+  // The narrow calibration selector in the service tab keeps plain pump numbers.
+  for(auto *dropdown : {firstPump_, careChannel_}) {
+    uint32_t selected = lv_dropdown_get_selected(dropdown);
+    lv_dropdown_set_options(dropdown, options.c_str());
+    lv_dropdown_set_selected(dropdown, selected);
+  }
+  lv_textarea_set_text(channelName_, channels_[lv_dropdown_get_selected(careChannel_) ? 1 : 0].c_str());
+  updateRecipeDetails();
+}
+void MixerUi::setChannelNames(const std::string &pump1, const std::string &pump2) {
+  channels_[0] = pump1; channels_[1] = pump2; refreshChannels();
+}
+void MixerUi::setChannelHandler(ChannelHandler h, void *context) { channelHandler_ = h; channelContext_ = context; }
+void MixerUi::setChannelMessage(const char *message) { lv_label_set_text(channelMessage_, message); }
+void MixerUi::showCare() { dispatch(Action::Care, 0); }
 }

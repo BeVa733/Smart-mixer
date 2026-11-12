@@ -21,15 +21,18 @@ enum class DrinkPhase { Idle, Positioning, Lowering, FirstLayer, SecondLayer, Re
 class RecipeExecution {
 public:
   bool start(uint32_t id, uint16_t ml1, uint16_t ml2, uint32_t ms1, uint32_t ms2,
-             const HeightSample *curve, unsigned count, uint32_t now, uint8_t firstPump = 1) {
+             const HeightSample *curve, unsigned count, uint32_t now, uint8_t firstPump = 1,
+             bool layered = true) {
     if(firstPump != 1 && firstPump != 2) return false;
     // Inputs belong to physical pumps. Internally volumes/times follow layer order.
     if(firstPump == 2) {
       uint16_t volume = ml1; ml1 = ml2; ml2 = volume;
       uint32_t duration = ms1; ms1 = ms2; ms2 = duration;
     }
+    // Layered mode lowers the shaft to the first layer, so that layer must be on the curve.
+    // Mixed mode pours everything at the rim; the curve still defines the rim and capacity.
     if(active() || id == 0 || id == lastId_ || !curve || count < 2 || count > 20 ||
-       ml1 > 1000 || ml2 > 1000 || ml1 + ml2 == 0 || (ml1 && ml2 && ml1 < curve[0].ml) ||
+       ml1 > 1000 || ml2 > 1000 || ml1 + ml2 == 0 || (layered && ml1 && ml2 && ml1 < curve[0].ml) ||
        ml1 + ml2 > curve[count-1].ml || (ml1 && (!ms1 || ms1 > 1800000)) ||
        (ml2 && (!ms2 || ms2 > 1800000))) return false;
     for(unsigned i = 0; i < count; ++i) {
@@ -38,7 +41,7 @@ public:
     }
     for(unsigned i = 0; i < count; ++i) curve_[i] = curve[i];
     count_ = count; ml1_ = ml1; ml2_ = ml2; ms1_ = ms1; ms2_ = ms2;
-    firstPump_ = firstPump;
+    firstPump_ = firstPump; layered_ = layered;
     id_ = lastId_ = id; stageAt_ = heartbeatAt_ = now;
     error_ = "NONE"; phase_ = DrinkPhase::Positioning; percent_ = 0;
     return true;
@@ -50,6 +53,7 @@ public:
   void fail(const char *error) { error_ = error; phase_ = DrinkPhase::Error; }
   int pump() const { return phase_ == DrinkPhase::FirstLayer ? firstPump_ : phase_ == DrinkPhase::SecondLayer ? 3 - firstPump_ : 0; }
   uint32_t id() const { return id_; }
+  bool layered() const { return layered_; }
   DrinkPhase phase() const { return phase_; }
   int percent() const { return percent_; }
   const char *error() const { return error_; }
@@ -68,7 +72,8 @@ public:
       uint32_t elapsed = now - stageAt_;
       if(elapsed >= ms1_) {
         percent_ = ml1_ * 100U / (ml1_ + ml2_);
-        phase_ = ml2_ ? DrinkPhase::Lowering : DrinkPhase::Returning; stageAt_ = now;
+        phase_ = !ml2_ ? DrinkPhase::Returning : layered_ ? DrinkPhase::Lowering : DrinkPhase::SecondLayer;
+        stageAt_ = now;
       }
       else percent_ = static_cast<int>(static_cast<uint64_t>(ml1_) * elapsed * 100U / ms1_ / (ml1_ + ml2_));
     }
@@ -83,7 +88,7 @@ public:
       else {
         uint32_t volume1000 = ml1_ * 1000U + static_cast<uint64_t>(ml2_) * elapsed * 1000U / ms2_;
         percent_ = static_cast<int>(volume1000 / (10U * (ml1_ + ml2_)));
-        target = ml1_ ? height(volume1000) : rim;
+        target = ml1_ && layered_ ? height(volume1000) : rim;
       }
     }
     if(phase_ == DrinkPhase::Returning) {
@@ -114,6 +119,7 @@ private:
   HeightSample curve_[20]{};
   unsigned count_ = 0;
   uint8_t firstPump_ = 1;
+  bool layered_ = true;
   uint16_t ml1_ = 0, ml2_ = 0;
   uint32_t ms1_ = 0, ms2_ = 0, id_ = 0, lastId_ = 0, stageAt_ = 0, heartbeatAt_ = 0;
   DrinkPhase phase_ = DrinkPhase::Idle;
