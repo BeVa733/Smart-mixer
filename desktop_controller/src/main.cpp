@@ -16,6 +16,31 @@ void directories(const std::string &path) {
       throw std::runtime_error("Не удалось создать каталог рецептов");
   }
 }
+// LVGL's SDL wheel only scrolls the last clicked object. Scroll the panel under the
+// mouse pointer instead, like a desktop application. Events are collected by an SDL
+// watch and applied from the main loop, outside LVGL's event processing.
+int wheelSteps = 0, wheelX = 0, wheelY = 0;
+int watchWheel(void *, SDL_Event *event) {
+  if(event->type == SDL_MOUSEWHEEL) {
+    wheelSteps += event->wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -event->wheel.y : event->wheel.y;
+    SDL_GetMouseState(&wheelX, &wheelY);
+  }
+  return 0;
+}
+void scrollUnderPointer() {
+  if(!wheelSteps) return;
+  lv_point_t point{wheelX, wheelY};
+  lv_obj_t *target = lv_obj_get_child_count(lv_layer_top()) ? lv_indev_search_obj(lv_layer_top(), &point) : nullptr;
+  if(!target) target = lv_indev_search_obj(lv_screen_active(), &point);
+  for(lv_obj_t *obj = target; obj; obj = lv_obj_get_parent(obj)) {
+    if(lv_obj_has_flag(obj, LV_OBJ_FLAG_SCROLLABLE) &&
+       (lv_obj_get_scroll_top(obj) > 0 || lv_obj_get_scroll_bottom(obj) > 0)) {
+      lv_obj_scroll_by_bounded(obj, 0, wheelSteps * 40, LV_ANIM_OFF);
+      break;
+    }
+  }
+  wheelSteps = 0;
+}
 std::string defaultRecipes() {
   const char *xdg = getenv("XDG_DATA_HOME"), *home = getenv("HOME");
   if(xdg && xdg[0] == '/') return std::string(xdg) + "/smart-mixer/recipes.txt";
@@ -38,6 +63,7 @@ int main(int argc, char **argv) {
   lv_sdl_window_set_resizeable(display, false);
   auto *group = lv_group_create(); lv_group_set_default(group);
   lv_sdl_mouse_create();
+  SDL_AddEventWatch(watchWheel, nullptr);
   auto *keyboard = lv_sdl_keyboard_create(); lv_indev_set_group(keyboard, group);
   UsbController usb;
   smart_mixer::MixerUi ui;
@@ -119,6 +145,7 @@ int main(int argc, char **argv) {
       if(!storageError.empty()) ui.setRecipeMessage(storageError.c_str());
     }
     lv_timer_handler();
+    scrollUnderPointer();
     if(smoke) {
       if(frames % 10 == 9 && frames < 80) {
         auto *image = SDL_CreateRGBSurfaceWithFormat(0, 800, 480, 32, SDL_PIXELFORMAT_ARGB8888);
@@ -146,7 +173,8 @@ int main(int argc, char **argv) {
     using namespace smart_mixer;
     if(UsbController::encode({Action::Dose, 2, 50}) != "d2 50.00" ||
        UsbController::encode({Action::Move, 0, -10}) != "a -10") return 2;
-    try { UsbController::encode({Action::Move, 0, 651}); return 3; }
+    if(UsbController::encode({Action::Move, 0, -2000}) != "a -2000") return 4;
+    try { UsbController::encode({Action::Move, 0, 10000}); return 3; }
     catch(const std::exception &) {}
     puts("LVGL: main, recipes, editor, care page and four tabs rendered; USB action mapping checked; no hardware accessed.");
   }

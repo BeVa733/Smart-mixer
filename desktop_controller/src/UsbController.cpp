@@ -49,8 +49,9 @@ std::string UsbController::encode(const Command &c) {
   case Action::HeightClear: return "hcal clear";
   case Action::HeightStop: return "hcal stop";
   case Action::Move:
-    if(c.value == 0 || std::abs(c.value) > 650 || std::floor(c.value) != c.value)
-      throw std::runtime_error("Move must be 1..650 microsteps");
+    // Per-command size only; there is no limit on total downward travel.
+    if(c.value == 0 || std::abs(c.value) > 9999 || std::floor(c.value) != c.value)
+      throw std::runtime_error("Move must be 1..9999 microsteps");
     snprintf(b, sizeof(b), "a %d", static_cast<int>(c.value)); break;
   case Action::Dose: case Action::SaveRate:
     if(c.value <= 0 || c.value > 1000) throw std::runtime_error("Value must be >0 and <=1000");

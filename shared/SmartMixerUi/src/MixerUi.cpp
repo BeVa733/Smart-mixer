@@ -2,9 +2,28 @@
 #include <stdio.h>
 #include <initializer_list>
 LV_FONT_DECLARE(mixer_font_16);
+LV_FONT_DECLARE(mixer_font_title);
+LV_IMAGE_DECLARE(menu_cocktail);
+LV_IMAGE_DECLARE(menu_recipe);
+LV_IMAGE_DECLARE(menu_care);
+LV_IMAGE_DECLARE(menu_service);
 
 namespace smart_mixer {
 namespace {
+// Fixed-size scrollable panel; its text label grows inside and never overlaps neighbours.
+lv_obj_t *scrollBox(lv_obj_t *parent, int x, int y, int width, int height, lv_obj_t **text) {
+  auto *box = lv_obj_create(parent);
+  lv_obj_set_pos(box, x, y); lv_obj_set_size(box, width, height);
+  lv_obj_set_style_pad_all(box, 8, 0);
+  lv_obj_set_style_radius(box, 6, 0);
+  lv_obj_set_style_bg_color(box, lv_color_hex(0xFFFFFF), 0);
+  lv_obj_set_scroll_dir(box, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_AUTO);
+  *text = lv_label_create(box);
+  lv_obj_set_width(*text, lv_pct(100));
+  lv_label_set_long_mode(*text, LV_LABEL_LONG_WRAP);
+  return box;
+}
 lv_obj_t *label(lv_obj_t *parent, const char *text, int x, int y, int width) {
   auto *o = lv_label_create(parent);
   lv_obj_set_pos(o, x, y);
@@ -61,7 +80,7 @@ void MixerUi::create(CommandHandler handler, void *context) {
   }
   label(pumps, "Следующий насос запускайте после завершения текущей порции.", 0, 266, 755);
   label(motion, "Количество микрошагов", 0, 0, 755);
-  steps_.create(motion, 0, 42, 1, 650, 10);
+  steps_.create(motion, 0, 42, 1, 9999, 10);
   button(motion, "Вверх", 245, 42, 140, Action::Move, 1);
   button(motion, "Вниз", 400, 42, 140, Action::Move, -1);
   button(motion, "Найти верхний ноль", 0, 110, 265, Action::Home);
@@ -91,12 +110,15 @@ void MixerUi::create(CommandHandler handler, void *context) {
   lv_textarea_set_text(port_, "/dev/ttyACM0");
   button(link, "Подключить", 305, 34, 180, Action::Connect, 0, false);
   button(link, "Отключить", 500, 34, 230, Action::Disconnect, 0, false);
-  connection_ = label(link, "Arduino не подключена", 0, 94, 750);
+  connection_ = label(link, "Arduino не подключена", 0, 92, 750);
   lv_label_set_long_mode(connection_, LV_LABEL_LONG_DOT);
-  status_ = label(link, "Данные о состоянии пока не получены", 0, 125, 750);
-  log_ = lv_label_create(link); lv_obj_set_pos(log_, 0, 205); lv_obj_set_width(log_, 750);
-  lv_obj_set_style_text_font(log_, &mixer_font_16, 0);
+  label(link, "Состояние", 0, 120, 280);
+  label(link, "Журнал (> отправлено, < ответ Arduino)", 300, 120, 460);
+  statusBox_ = scrollBox(link, 0, 146, 288, 186, &status_);
+  logBox_ = scrollBox(link, 300, 146, 460, 186, &log_);
+  lv_label_set_text(status_, "Данные о состоянии пока не получены");
   lv_label_set_text(log_, "No replies yet.");
+  lv_obj_remove_flag(link, LV_OBJ_FLAG_SCROLLABLE);
   createRecipePages(screen);
   createCarePage(screen);
   back_ = button(screen, LV_SYMBOL_LEFT, 16, 8, 48, Action::MainMenu, 0, false);
@@ -216,7 +238,7 @@ void MixerUi::dispatch(Action a, int p) {
   if(a == Action::SaveRate) valid = grams_.value(value);
   if(!valid) {
     showNotice(a == Action::Dose ? "Введите объём: 1-1000 мл" :
-              a == Action::Move ? "Введите шаги: 1-650" : "Введите массу: 0.01-999.99 г");
+              a == Action::Move ? "Введите шаги: 1-9999" : "Введите массу: 0.01-999.99 г");
     return;
   }
   if(a == Action::Status) showTab(3);
@@ -260,7 +282,11 @@ void MixerUi::setConnection(bool connected, bool working, const char *text) {
 }
 void MixerUi::setStatus(const char *text) { lv_label_set_text(status_, text); }
 void MixerUi::setLog(const char *text) {
+  // Follow new lines only while the reader is at the end; keep position after scrolling up.
+  lv_obj_update_layout(logBox_);
+  bool atEnd = lv_obj_get_scroll_bottom(logBox_) <= 4;
   lv_label_set_text(log_, text);
+  if(atEnd) { lv_obj_update_layout(logBox_); lv_obj_scroll_to_y(logBox_, 1000000, LV_ANIM_OFF); }
   if(!careReply_) return;
   // Last Arduino reply, so priming/washing results are visible without the service log.
   std::string log = text, last;
@@ -311,32 +337,63 @@ void MixerUi::createRecipePages(lv_obj_t *screen) {
   };
   main_ = page(); catalog_ = page(); editor_ = page();
   lv_obj_set_pos(main_, 0, 0); lv_obj_set_size(main_, 800, 480);
-  lv_obj_set_style_pad_all(main_, 16, 0);
+  lv_obj_set_style_pad_all(main_, 0, 0);
   lv_obj_set_style_border_width(main_, 0, 0);
   lv_obj_set_style_radius(main_, 0, 0);
   lv_obj_set_style_bg_color(main_, lv_color_hex(0x101827), 0);
   lv_obj_remove_flag(main_, LV_OBJ_FLAG_SCROLLABLE);
-  const char *titles[] = {"Приготовить напиток", "Добавить рецепт", "Прокачка и промывка", "Сервисный режим"};
-  const Action actions[] = {Action::Recipes, Action::NewRecipe, Action::Care, Action::Service};
-  const uint32_t colors[] = {0x163A42, 0x3E3045, 0x2D4434, 0x293C53};
+  auto *brand = label(main_, "Smart Mixer", 24, 20, 300);
+  lv_obj_set_style_text_font(brand, &mixer_font_title, 0);
+  lv_obj_set_style_text_color(brand, lv_color_hex(0xFFFFFF), 0);
+  auto *hint = label(main_, "Выберите действие", 476, 26, 300);
+  lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_style_text_color(hint, lv_color_hex(0x8FA3BF), 0);
+  // One large primary card on the left, three secondary cards on the right.
+  // Illustrations are generated by scripts/make_menu_images.py (menu_images.c).
+  struct Card { const char *title, *subtitle; Action action; uint32_t top, bottom; const lv_image_dsc_t *image; };
+  const Card cards[] = {
+    {"Приготовить\nнапиток", "Выбрать рецепт и налить", Action::Recipes, 0x1A4A52, 0x10303A, &menu_cocktail},
+    {"Добавить рецепт", "Название, объёмы, слоями или смешать", Action::NewRecipe, 0x3C3150, 0x281F36, &menu_recipe},
+    {"Прокачка и промывка", "Калибровка трассы, промывка каналов", Action::Care, 0x274536, 0x182C22, &menu_care},
+    {"Сервисный режим", "Дозирование, привод, калибровка, USB", Action::Service, 0x2A3F5C, 0x1A283C, &menu_service},
+  };
   for(unsigned i = 0; i < 4; ++i) {
-    auto *card = button(main_, titles[i], i * 194, 0, 182, actions[i], 0, false);
-    lv_obj_set_height(card, 448);
-    lv_obj_set_style_radius(card, 18, 0);
+    const bool primary = i == 0;
+    auto *card = primary ? button(main_, cards[i].title, 16, 68, 312, cards[i].action, 0, false)
+                         : button(main_, cards[i].title, 340, 68 + (i - 1) * 134, 444, cards[i].action, 0, false);
+    lv_obj_set_height(card, primary ? 396 : 124);
+    lv_obj_set_style_radius(card, 20, 0);
     lv_obj_set_style_pad_all(card, 0, 0);
     lv_obj_set_style_shadow_width(card, 0, 0);
-    lv_obj_set_style_bg_color(card, lv_color_hex(colors[i]), 0);
-    // Future photos can be assigned as the button's LVGL background image;
-    // the caption stays above the image and remains part of the same hit target.
+    // Solid fills: gradients band visibly at the panel's 16-bit colour depth.
+    lv_obj_set_style_bg_color(card, lv_color_hex(cards[i].top), 0);
+    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_border_color(card, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_border_opa(card, LV_OPA_10, 0);
+    lv_obj_set_style_bg_color(card, lv_color_hex(cards[i].bottom), LV_STATE_PRESSED);
+    // Child 0 stays the title label: tests and adapters find menu buttons by it.
     auto *caption = lv_obj_get_child(card, 0);
-    lv_obj_set_width(caption, 162);
-    lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(caption, &mixer_font_title, 0);
     lv_obj_set_style_text_color(caption, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_bg_color(caption, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_bg_opa(caption, LV_OPA_60, 0);
-    lv_obj_set_style_radius(caption, 8, 0);
-    lv_obj_set_style_pad_ver(caption, 14, 0);
-    lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, -20);
+    auto *subtitle = lv_label_create(card);
+    lv_label_set_text(subtitle, cards[i].subtitle);
+    lv_obj_set_style_text_color(subtitle, lv_color_hex(0xD6E0EA), 0);
+    lv_obj_set_style_text_opa(subtitle, LV_OPA_80, 0);
+    auto *image = lv_image_create(card);
+    lv_image_set_src(image, cards[i].image);
+    lv_obj_remove_flag(image, LV_OBJ_FLAG_CLICKABLE);
+    if(primary) {
+      lv_obj_align(image, LV_ALIGN_TOP_MID, 0, 52);
+      lv_obj_set_style_text_align(caption, LV_TEXT_ALIGN_CENTER, 0);
+      lv_obj_align(caption, LV_ALIGN_BOTTOM_MID, 0, -64);
+      lv_obj_set_style_text_align(subtitle, LV_TEXT_ALIGN_CENTER, 0);
+      lv_obj_align(subtitle, LV_ALIGN_BOTTOM_MID, 0, -28);
+    } else {
+      lv_obj_align(image, LV_ALIGN_LEFT_MID, 16, 0);
+      lv_obj_align(caption, LV_ALIGN_TOP_LEFT, 118, 26);
+      lv_obj_set_width(subtitle, 314);
+      lv_obj_align(subtitle, LV_ALIGN_TOP_LEFT, 118, 64);
+    }
   }
   label(catalog_, "Выберите рецепт", 0, 0, 270);
   recipeList_ = lv_dropdown_create(catalog_); lv_obj_set_pos(recipeList_, 0, 32); lv_obj_set_size(recipeList_, 735, 48);

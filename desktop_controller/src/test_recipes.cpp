@@ -88,7 +88,7 @@ int main() {
   for(uint32_t now = 0; now < 5000 && execution.active(); ++now) {
     execution.heartbeat(1, now);
     int direction = execution.step(now, position, position == 0);
-    check(position + direction >= -650 && position + direction <= 0, "mechanical limits");
+    check(position + direction <= 0, "never above the upper limit switch");
     if(execution.pump() == 1) { reachedPump1 = true; check(position == -10, "first layer must stay at calibrated rim"); }
     if(execution.pump() == 2) {
       check(reachedPump1, "pump order");
@@ -127,6 +127,10 @@ int main() {
         validation.start(20, 1, 20, 100, 1000, curve, 3, 0, 2), "minimum first-layer volume follows selected pump");
   check(!execution.start(1, 20, 30, 1000, 1500, curve, 3, 6000), "duplicate latest operation rejected");
   check(!execution.start(2, 100, 100, 1000, 1000, curve, 3, 6000), "volume beyond height table rejected");
+  HeightSample deep[] = {{5, -3000}, {100, -1200}};
+  RecipeExecution deepRun; check(deepRun.start(40, 20, 30, 500, 500, deep, 2, 0), "curve deeper than 650 microsteps accepted");
+  { int32_t p = 0; for(uint32_t now = 0; now < 20000 && deepRun.active(); ++now) { deepRun.heartbeat(40, now); p += deepRun.step(now, p, p == 0); }
+    check(deepRun.phase() == DrinkPhase::Done && p == -1200, "deep recipe completes at its rim"); }
   HeightSample invalid[] = {{5, -100}, {10, -200}};
   check(!execution.start(2, 5, 5, 500, 500, invalid, 2, 6000), "inverted height curve rejected");
   check(execution.start(2, 0, 10, 0, 500, curve, 3, 0xFFFFFF00U), "pump 2 only and clock rollover");

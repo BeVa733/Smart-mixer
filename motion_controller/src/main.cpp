@@ -10,7 +10,6 @@ static constexpr unsigned long HOMING_TIMEOUT_MS = 30000;
 static constexpr unsigned long CALIBRATION_RUN_MS = 20000;
 static constexpr float CALIBRATION_CHECK_VOLUME_ML = 50.0f;
 static constexpr uint16_t HEIGHT_CALIBRATION_INCREMENT_ML = 5;
-static constexpr int32_t MAX_DOWNWARD_MICROSTEPS = 650;
 
 PumpCalibration calibration;
 Encoder encoder;
@@ -370,11 +369,7 @@ void moveActuator(long steps) {
       Serial.println(F("Верхний предел: движение вверх остановлено"));
       break;
     }
-    if (direction < 0 &&
-        actuatorPositionSteps <= -MAX_DOWNWARD_MICROSTEPS) {
-      Serial.println(F("Нижний предел: 650 микрошагов от home"));
-      break;
-    }
+    // No software lower limit: downward travel is bounded only mechanically.
     motor.step(direction);
     actuatorPositionSteps += direction;
     ++moved;
@@ -799,9 +794,6 @@ void loop(void) {
   if (mode == ControlMode::Actuator && !calibrationRunning && direction != 0) {
     if (direction > 0 && upperLimit.isTriggered()) {
       Serial.println(F("Верхний предел: движение вверх запрещено"));
-    } else if (direction < 0 &&
-               actuatorPositionSteps <= -MAX_DOWNWARD_MICROSTEPS) {
-      Serial.println(F("Нижний предел: 650 микрошагов от home"));
     } else {
       motor.step(direction);
       actuatorPositionSteps += direction;

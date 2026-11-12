@@ -46,7 +46,7 @@ public:
     save();
   }
   bool addHeightPoint(uint16_t volume, int32_t steps) {
-    if(heightCount_ >= MAX_HEIGHT_POINTS || !volume || steps < -650 || steps > 0 ||
+    if(heightCount_ >= MAX_HEIGHT_POINTS || !volume || steps > 0 ||
        (heightCount_ && (volume <= height_[heightCount_-1].volumeMl || steps < height_[heightCount_-1].steps))) return false;
     height_[heightCount_].volumeMl = volume; height_[heightCount_].steps = steps;
     ++heightCount_; conflict_ = false; save(); return true;
@@ -74,7 +74,7 @@ private:
   static bool validCurve(unsigned count, const HeightPoint *points) {
     if(count > MAX_HEIGHT_POINTS) return false;
     for(unsigned i = 0; i < count; ++i) {
-      if(!points[i].volumeMl || points[i].steps < -650 || points[i].steps > 0 ||
+      if(!points[i].volumeMl || points[i].steps > 0 ||
          (i && (points[i].volumeMl <= points[i-1].volumeMl || points[i].steps < points[i-1].steps))) return false;
     }
     return true;

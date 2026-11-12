@@ -36,7 +36,7 @@ public:
        ml1 + ml2 > curve[count-1].ml || (ml1 && (!ms1 || ms1 > 1800000)) ||
        (ml2 && (!ms2 || ms2 > 1800000))) return false;
     for(unsigned i = 0; i < count; ++i) {
-      if(curve[i].ml == 0 || curve[i].steps < -650 || curve[i].steps > 0 ||
+      if(curve[i].ml == 0 || curve[i].steps > 0 ||
          (i && (curve[i].ml <= curve[i-1].ml || curve[i].steps < curve[i-1].steps))) return false;
     }
     for(unsigned i = 0; i < count; ++i) curve_[i] = curve[i];
@@ -61,7 +61,8 @@ public:
   int step(uint32_t now, int32_t position, bool upperLimit) {
     if(!active()) return 0;
     if(now - heartbeatAt_ >= 2000) { fail("LINK_TIMEOUT"); return 0; }
-    if(position < -650 || position > 0) { fail("POSITION"); return 0; }
+    // Only the upper side is bounded (0 = upper limit switch); there is no software lower limit.
+    if(position > 0) { fail("POSITION"); return 0; }
     const int32_t rim = curve_[count_-1].steps;
     int32_t target = rim;
     if(phase_ == DrinkPhase::Positioning) {

@@ -35,7 +35,11 @@ int main() {
                                    "explicit save uses new format without losing common table");
     reloaded.clearHeight(); check(reloaded.heightPointCount() == 0 && reloaded.pump2MlPerSecond == 1.5f, "clear levels preserves pump rates");
     check(reloaded.addHeightPoint(5, -100) && reloaded.addHeightPoint(10, -90), "shared table accepts ordered samples");
-    check(!reloaded.addHeightPoint(15, -110) && !reloaded.addHeightPoint(10, -80) && !reloaded.addHeightPoint(20, -651), "invalid height samples do not persist");
+    check(!reloaded.addHeightPoint(15, -110) && !reloaded.addHeightPoint(10, -80) && !reloaded.addHeightPoint(20, 5), "invalid height samples do not persist");
+    reloaded.clearHeight();
+    check(reloaded.addHeightPoint(5, -2000) && reloaded.addHeightPoint(10, -1500), "no software lower limit for deep glasses");
+    PumpCalibration deep; check(deep.begin() && deep.heightPointCount() == 2 && deep.heightPoints()[0].steps == -2000,
+                                "deep height table survives EEPROM reload");
   }
   EEPROM.reset(); Legacy both; both.count1 = both.count2 = 2; oldCurve(both.points1); oldCurve(both.points2);
   EEPROM.put(0, both); EEPROM.writes = 0;
