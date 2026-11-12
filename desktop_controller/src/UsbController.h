@@ -16,6 +16,8 @@ public:
   void prepare(const smart_mixer::Recipe &recipe);
   // Why this recipe cannot be cooked now, with what to do; empty if nothing known prevents it.
   std::string cookingProblem(const smart_mixer::Recipe &recipe) const;
+  // Pump rates and level table as last reported from Arduino's EEPROM.
+  std::string eepromSummary() const;
   bool recipeReady() const { return working_ && recipeApi_ >= 2 && homed_ && !calibrating(); }
   bool cooking() const { return cooking_; }
   bool calibrating() const { return pumpCalibration_ || heightCalibration_; }

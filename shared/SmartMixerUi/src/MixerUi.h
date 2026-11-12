@@ -18,8 +18,8 @@ enum class Action { Connect, Disconnect, Status, Stop, Home, Encoder, Move,
                     CalibratePrime, PrimeArrived, PrimeMeasured,
                     // Run a pump for value seconds (Arduino-timed).
                     RunFor,
-                    // Leave encoder mode; store the pump's measured rate from 30.10.
-                    EncoderOff, SaveKnownRate };
+                    // Leave encoder mode.
+                    EncoderOff };
 struct Command { Action action; int pump; float value; };
 typedef void (*CommandHandler)(void *, const Command &);
 // Ingredient name of a physical pump (1 or 2); empty name means "not set".
@@ -47,6 +47,8 @@ public:
   void setPrimeTimes(float pump1, float pump2);
   // Common level table from Arduino, one "volume -> microsteps" row per line.
   void showHeightTable(const char *rows);
+  // Calibration stored in Arduino's EEPROM (rates and level table), shown on the calibration tab.
+  void setEepromInfo(const char *text);
   lv_obj_t *recipeEditorRoot() const { return editor_; }
   void setRecipes(const std::vector<Recipe> &recipes);
   void setRecipeHandler(RecipeHandler handler, void *context);
@@ -68,7 +70,7 @@ private:
   bool calibrating_ = false;
   lv_obj_t *log_ = nullptr, *port_ = nullptr, *pump_ = nullptr;
   lv_obj_t *statusBox_ = nullptr, *logBox_ = nullptr;
-  lv_obj_t *dosingStatus_ = nullptr, *dosingReply_ = nullptr, *calReply_ = nullptr;
+  lv_obj_t *dosingStatus_ = nullptr, *dosingReply_ = nullptr, *calReply_ = nullptr, *eepromInfo_ = nullptr;
   NumericInput volume_[2], steps_, grams_;
   lv_obj_t *controls_[40]{};
   unsigned controlCount_ = 0;

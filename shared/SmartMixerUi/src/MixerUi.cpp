@@ -103,7 +103,8 @@ void MixerUi::create(CommandHandler handler, void *context) {
   label(cal, "Масса воды после замера 20 секунд, г", 0, 65, 750);
   grams_.create(cal, 0, 100, 1, 99999, 2730, 2);
   button(cal, "Сохранить", 245, 100, 190, Action::SaveRate);
-  button(cal, "Данные 30.10", 450, 100, 190, Action::SaveKnownRate);
+  // What Arduino has in EEPROM right now (refreshed by "Состояние" and level replies).
+  eepromInfo_ = label(cal, "EEPROM: нажмите Состояние", 450, 98, 305);
   label(cal, "Общий уровень — налив выбранным насосом", 0, 162, 750);
   button(cal, "Начать уровни", 0, 190, 225, Action::HeightStart);
   button(cal, "Точка и ещё 5 мл", 240, 190, 225, Action::HeightMark);
@@ -252,15 +253,6 @@ void MixerUi::dispatch(Action a, int p) {
   if(!valid) {
     showNotice(a == Action::Dose ? "Введите объём: 1-1000 мл" :
               a == Action::Move ? "Введите шаги: 1-1000" : "Введите массу: 0.01-999.99 г");
-    return;
-  }
-  if(a == Action::SaveKnownRate) {
-    // Measured on the stand on 30.10.2026: 27.27 g and 23.94 g of water in 20 s.
-    p = lv_dropdown_get_selected(pump_) + 1;
-    pending_ = {Action::SaveRate, p, p == 1 ? 27.27f : 23.94f};
-    askConfirmation("Записать калибровку",
-      p == 1 ? "Записать в EEPROM насос 1: 27.27 г за 20 с = 1.364 мл/с (замер 30.10)?"
-             : "Записать в EEPROM насос 2: 23.94 г за 20 с = 1.197 мл/с (замер 30.10)?");
     return;
   }
   if(a == Action::Status) showTab(3);
@@ -601,6 +593,7 @@ void MixerUi::setChannelNames(const std::string &pump1, const std::string &pump2
 void MixerUi::setChannelHandler(ChannelHandler h, void *context) { channelHandler_ = h; channelContext_ = context; }
 void MixerUi::setChannelMessage(const char *message) { lv_label_set_text(channelMessage_, message); }
 void MixerUi::showCare() { dispatch(Action::Care, 0); }
+void MixerUi::setEepromInfo(const char *text) { if(eepromInfo_) lv_label_set_text(eepromInfo_, text); }
 void MixerUi::showHeightTable(const char *rows) {
   auto *box = lv_msgbox_create(nullptr);
   lv_obj_set_style_text_font(box, &mixer_font_16, 0);

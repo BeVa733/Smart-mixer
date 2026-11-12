@@ -83,6 +83,10 @@ int main() {
   thinFirst.layered = false;
   check(usb.cookingProblem(thinFirst).find("MIX_API 3") != std::string::npos, "mixed mode on old firmware explained");
   check(usb.cookingProblem(recipe).empty(), "valid recipe has no problem");
+  check(usb.eepromSummary().find("Уровни: 3 т., 5-100 мл") != std::string::npos &&
+        usb.eepromSummary().find("P1 1.300") != std::string::npos, "EEPROM summary shows rates and level table");
+  reportCalibration("Сохранено в общей таблице: 120 мл -> -650 микрошагов");
+  check(usb.eepromSummary().find("есть -650!") != std::string::npos, "points at the old 650 limit flagged");
   reportCalibration("Homing: не выполнен");
   check(usb.cookingProblem(recipe).find("верхнего нуля") != std::string::npos, "missing homing explained");
   reportCalibration("Homing: готов");

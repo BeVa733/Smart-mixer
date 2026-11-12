@@ -123,6 +123,11 @@ int main(int argc, char **argv) {
   bool previousCalibration = false;
   while(lv_display_get_next(nullptr)) {
     usb.poll();
+    {
+      static std::string previousEeprom;
+      std::string eeprom = usb.eepromSummary();
+      if(eeprom != previousEeprom) { previousEeprom = eeprom; ui.setEepromInfo(eeprom.c_str()); }
+    }
     std::string heightTable;
     if(usb.takeHeightTable(heightTable)) ui.showHeightTable(heightTable.c_str());
     int primedPump; float primeSeconds;

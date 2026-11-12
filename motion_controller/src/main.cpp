@@ -50,7 +50,26 @@ Pump &heightCalibrationPump() {
   return heightCalibrationPumpNumber == 1 ? pump1 : pump2;
 }
 
+// Every volume-based operation reads the pump rates from EEPROM again, so the stored
+// calibration is always what is used, never a stale copy from boot.
+void reloadCalibrationFromEeprom() {
+  calibration.begin();
+  pump1.setFlowRate(calibration.pump1MlPerSecond);
+  pump2.setFlowRate(calibration.pump2MlPerSecond);
+}
+
+void printPumpRates() {
+  Serial.print(F("Калибровка P1: "));
+  Serial.print(pump1.flowRate(), 3);
+  Serial.println(F(" мл/с (EEPROM)"));
+  Serial.print(F("Калибровка P2: "));
+  Serial.print(pump2.flowRate(), 3);
+  Serial.println(F(" мл/с (EEPROM)"));
+}
+
 void printHeightCalibrationTable() {
+  // Show what is stored in EEPROM, not a copy in RAM.
+  reloadCalibrationFromEeprom();
   const uint8_t count = calibration.heightPointCount();
   const PumpCalibration::HeightPoint *points =
       calibration.heightPoints();
@@ -117,6 +136,7 @@ void printStatus() {
 #ifdef SMART_MIXER_MANUAL_HOME
   Serial.println(F("MIX_API 3"));
 #endif
+  reloadCalibrationFromEeprom();  // the rates below are the EEPROM values
   Serial.println(F("\n--- Состояние ---"));
   Serial.print(F("Homing: "));
   Serial.println(homingReady ? F("готов") : F("не выполнен"));
@@ -171,23 +191,6 @@ bool homeUp() {
   Serial.println(homingReady ? F("Homing завершён")
                              : F("Ошибка: верхний концевик не найден"));
   return homingReady;
-}
-
-// Every volume-based operation reads the pump rates from EEPROM again, so the stored
-// calibration is always what is used, never a stale copy from boot.
-void reloadCalibrationFromEeprom() {
-  calibration.begin();
-  pump1.setFlowRate(calibration.pump1MlPerSecond);
-  pump2.setFlowRate(calibration.pump2MlPerSecond);
-}
-
-void printPumpRates() {
-  Serial.print(F("Калибровка P1: "));
-  Serial.print(pump1.flowRate(), 3);
-  Serial.println(F(" мл/с (EEPROM)"));
-  Serial.print(F("Калибровка P2: "));
-  Serial.print(pump2.flowRate(), 3);
-  Serial.println(F(" мл/с (EEPROM)"));
 }
 
 void stopPumps() {

@@ -130,6 +130,8 @@ void UsbController::handle(const Command &c, const char *port) {
     if(c.action == Action::RunFor && recipeApi_ < 3)
       throw std::runtime_error("Для прокачки по времени загрузите новую desktop_usb (MIX_API 3)");
     send(encode(c));
+    // "Состояние" also refreshes the level table from EEPROM (silently, no window).
+    if(c.action == Action::Status && recipeApi_ >= 2) tableQueried_ = false;
     if(c.action == Action::Prime) { primeCalPump_ = c.pump; primeStartedAt_ = 0; }
     if(c.action == Action::HeightShow) tableRequested_ = true;
   } catch(const std::exception &e) { message_ = e.what(); }
@@ -309,6 +311,11 @@ bool UsbController::takeHeightTable(std::string &table) {
   tableRequested_ = false;
   table = heightTable_.empty() ? "пока нет сохранённых точек" : heightTable_;
   if(!table.empty() && table.back() == '\n') table.pop_back();
+  for(const auto &level : levels_) if(level.second == -650) {
+    table += "\n\nТочки на -650 сняты со старым пределом хода: реальный уровень ниже, "
+             "шток будет выше жидкости. Снимите уровни заново.";
+    break;
+  }
   return true;
 }
 std::string UsbController::cookingProblem(const smart_mixer::Recipe &r) const {
@@ -349,4 +356,25 @@ std::string UsbController::cookingProblem(const smart_mixer::Recipe &r) const {
     }
   }
   return "";
+}
+std::string UsbController::eepromSummary() const {
+  if(fd_ < 0 || !working_) return "EEPROM: Arduino не подключена";
+  char text[200], rate[2][16];
+  for(int p = 0; p < 2; ++p) {
+    if(rates_[p] < 0) snprintf(rate[p], sizeof(rate[p]), "?");
+    else snprintf(rate[p], sizeof(rate[p]), "%.3f", rates_[p]);
+  }
+  std::string levels;
+  if(!tableKnown_) levels = "Уровни: нажмите Состояние";
+  else if(levels_.empty()) levels = "Уровни в EEPROM: нет точек";
+  else {
+    bool oldLimit = false;
+    for(const auto &level : levels_) oldLimit = oldLimit || level.second == -650;
+    char row[120];
+    snprintf(row, sizeof(row), "Уровни: %u т., %d-%d мл%s", static_cast<unsigned>(levels_.size()),
+             levels_.front().first, levels_.back().first, oldLimit ? ", есть -650!" : "");
+    levels = row;
+  }
+  snprintf(text, sizeof(text), "EEPROM: P1 %s, P2 %s мл/с\n%s", rate[0], rate[1], levels.c_str());
+  return text;
 }
