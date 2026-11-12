@@ -173,6 +173,23 @@ bool homeUp() {
   return homingReady;
 }
 
+// Every volume-based operation reads the pump rates from EEPROM again, so the stored
+// calibration is always what is used, never a stale copy from boot.
+void reloadCalibrationFromEeprom() {
+  calibration.begin();
+  pump1.setFlowRate(calibration.pump1MlPerSecond);
+  pump2.setFlowRate(calibration.pump2MlPerSecond);
+}
+
+void printPumpRates() {
+  Serial.print(F("Калибровка P1: "));
+  Serial.print(pump1.flowRate(), 3);
+  Serial.println(F(" мл/с (EEPROM)"));
+  Serial.print(F("Калибровка P2: "));
+  Serial.print(pump2.flowRate(), 3);
+  Serial.println(F(" мл/с (EEPROM)"));
+}
+
 void stopPumps() {
   pump1Enabled = false;
   pump2Enabled = false;
@@ -220,6 +237,7 @@ void startCalibration() {
   stopHeightCalibration(false);
   stopPumps();
 
+  reloadCalibrationFromEeprom();
   Pump &pump = calibrationPump();
   if (selectedCalibrationItem >= 4 && pump.flowRate() <= 0) {
     Serial.println(F("Сначала выполните замер 20 секунд и введите c1/c2"));
@@ -300,6 +318,7 @@ void dosePump(uint8_t pumpNumber, float volumeMl) {
     Serial.println(F("Пример: d1 50"));
     return;
   }
+  reloadCalibrationFromEeprom();
   if (pump->flowRate() <= 0) {
     Serial.println(F("Сначала откалибруйте насос командой cal 20 1/2 и c1/c2"));
     return;
@@ -317,7 +336,9 @@ void dosePump(uint8_t pumpNumber, float volumeMl) {
   Serial.print(volumeMl, 1);
   Serial.print(F(" мл, "));
   Serial.print(pump->msForVolume(volumeMl));
-  Serial.println(F(" мс"));
+  Serial.print(F(" мс по "));
+  Serial.print(pump->flowRate(), 3);
+  Serial.println(F(" мл/с из EEPROM"));
 }
 
 // Timed run for line priming and washing: t1 12.5 = pump 1 for 12.5 s.
@@ -459,6 +480,7 @@ void startHeightCalibration(uint8_t pumpNumber) {
     return;
   }
 
+  reloadCalibrationFromEeprom();
   Pump &pump = pumpNumber == 1 ? pump1 : pump2;
   if (pump.flowRate() <= 0) {
     Serial.println(F("Сначала откалибруйте насос командой cal 20 1/2 и c1/c2"));

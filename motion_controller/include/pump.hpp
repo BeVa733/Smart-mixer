@@ -22,10 +22,9 @@ public:
     digitalWrite(controlPin, enabled ? HIGH : LOW);
   }
 
+  // 0 (or less) = not calibrated: dosing by volume is refused.
   void setFlowRate(float flowMlPerSecond) {
-    if (flowMlPerSecond > 0) {
-      mlPerSecond = flowMlPerSecond;
-    }
+    mlPerSecond = flowMlPerSecond > 0 ? flowMlPerSecond : 0.0f;
   }
 
   void stop() {

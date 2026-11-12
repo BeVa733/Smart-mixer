@@ -58,6 +58,9 @@ bool handleDesktopRecipeCommand(const String &command) {
     if(!homingReady || calibrationRunning || heightCalibrationRunning || pump1Enabled || pump2Enabled || pump1.isDosing() || pump2.isDosing()) {
       reportRecipe(v[0], "ERROR", 0, "NOT_READY"); return true;
     }
+    // Rates come from EEPROM for every drink, not from the copy loaded at boot.
+    reloadCalibrationFromEeprom();
+    printPumpRates();
     double duration1 = v[1] ? v[1] * 1000.0 / pump1.flowRate() : 0;
     double duration2 = v[2] ? v[2] * 1000.0 / pump2.flowRate() : 0;
     if(!isfinite(duration1) || !isfinite(duration2) || duration1 < 0 || duration2 < 0 ||
