@@ -102,7 +102,7 @@ int main() {
   ui.setCooking(true, true, "test", 10); check(lv_obj_is_visible(stopButton), "stop during drink preparation");
   ui.setCooking(true, false, "test", 100); check(!lv_obj_is_visible(stopButton), "stop hidden after preparation finishes");
   std::vector<lv_obj_t *> fields; collect(ui.serviceRoot(), fields);
-  check(fields.size() == 6, "all fields covered");
+  check(fields.size() == 5, "all fields covered");
   for(unsigned i = 0; i < 4; ++i) {
     ui.showTab(i < 2 ? 0 : i - 1); pump();
     lv_group_focus_obj(fields[i]); lv_textarea_set_text(fields[i], ""); text("42");
@@ -116,16 +116,8 @@ int main() {
   check(commands.size() == 1, "empty input dispatched a dose");
   auto *notice = findButton(lv_layer_top(), "Понятно"); check(notice, "invalid input is explained outside removed header");
   lv_obj_send_event(notice, LV_EVENT_CLICKED, nullptr);
-  ui.showTab(2); pump();
-  lv_textarea_set_text(fields[3], "26.00"); lv_textarea_set_text(fields[4], "1.30");
-  size_t rateBefore = commands.size();
-  lv_obj_send_event(findButton(ui.serviceRoot(), "Сохранить"), LV_EVENT_CLICKED, nullptr);
-  check(commands.size() == rateBefore, "saving a rate asks first");
-  lv_obj_send_event(findButton(lv_layer_top(), "Выполнить"), LV_EVENT_CLICKED, nullptr);
-  check(commands.back().action == Action::SaveRate && std::fabs(commands.back().value - 20.0f) < 0.001f,
-        "rate saved as millilitres: 26 g of syrup at 1.30 g/ml = 20 ml");
-  ui.showTab(3); pump(); lv_group_focus_obj(fields[5]);
-  lv_textarea_set_text(fields[5], ""); text("/dev/ttyACM1");
+  ui.showTab(3); pump(); lv_group_focus_obj(fields[4]);
+  lv_textarea_set_text(fields[4], ""); text("/dev/ttyACM1");
   check(strcmp(ui.port(), "/dev/ttyACM1") == 0, "USB path keyboard input");
   std::vector<Recipe> saved; std::vector<RecipeAction> recipeActions;
   struct RecipesContext { std::vector<Recipe> *saved; std::vector<RecipeAction> *actions; } context{&saved, &recipeActions};

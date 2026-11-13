@@ -110,7 +110,7 @@ void printHelp() {
   Serial.println(F("  cal 20 2          замер насоса 2 за 20 секунд"));
   Serial.println(F("  cal 50 1          проверка дозирования 50 мл"));
   Serial.println(F("  cal 50 2          проверка дозирования 50 мл"));
-  Serial.println(F("  c1 27.3 / c2 23.9 сохранить мл за 20 с (граммы / плотность жидкости)"));
+  Serial.println(F("  c1 27.3 / c2 23.9 сохранить граммы после замера 20 секунд"));
   Serial.println(F("  hcal start 1/2  общая калибровка уровня; насос для налива"));
   Serial.println(F("  hcal mark       сохранить текущий уровень"));
   Serial.println(F("  hcal show       показать общую таблицу уровня"));
@@ -224,7 +224,7 @@ void stopCalibration(bool completed) {
     const uint8_t pumpNumber = calibrationPumpNumber();
     Serial.print(F("Замер завершён. Взвесь воду и введи: c"));
     Serial.print(pumpNumber);
-    Serial.println(F(" <мл = граммы / плотность>, например c1 27.3"));
+    Serial.println(F(" <граммы>, например c1 27.3"));
   } else {
     Serial.println(F("Калибровка остановлена"));
   }
