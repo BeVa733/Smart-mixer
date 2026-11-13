@@ -122,7 +122,7 @@ int main() {
     position += direction;
   }
   check(firstSeen && secondSeen && reversed.phase() == DrinkPhase::Done && position == -10, "reverse order completes at common calibrated rim");
-  // Lead over the liquid during the second layer: 0..30 microsteps above the calculated level.
+  // Lead over the liquid during the second layer: 0..10 microsteps above the calculated level.
   {
     auto level = [&](double ml) {
       for(int i = 1; i < 3; ++i) if(ml <= curve[i].ml)
@@ -143,7 +143,8 @@ int main() {
       }
     }
     check(second && lead.phase() == DrinkPhase::Done, "lead recipe completes");
-    check(minLead >= 0 && maxLead <= 30, "shaft leads the second layer by 0..30 microsteps");
+    fprintf(stderr, "second-layer lead: %.2f..%.2f microsteps\n", minLead, maxLead);
+    check(minLead >= 0 && maxLead <= 10 + 1e-9, "shaft leads the second layer by 0..10 microsteps");
   }
   RecipeExecution validation;
   check(!validation.start(20, 1, 20, 100, 1000, curve, 3, 0, 1) &&

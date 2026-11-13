@@ -23,8 +23,9 @@ public:
   // Same lower travel limit as MAX_DOWNWARD_MICROSTEPS in motion_controller/include/calibration.hpp.
   static constexpr int32_t MAX_DOWNWARD_STEPS = 1000;
   // Layered mode: the shaft stays this many microsteps above the calculated liquid level
-  // (requirement: lead the layer by no more than 20-30 microsteps).
-  static constexpr int32_t LEVEL_LEAD_STEPS = 25;
+  // (requirement: lead the layer by no more than 10 microsteps). The level is rounded
+  // down and the shaft only lags behind a rising level, so the lead never exceeds this.
+  static constexpr int32_t LEVEL_LEAD_STEPS = 10;
   bool start(uint32_t id, uint16_t ml1, uint16_t ml2, uint32_t ms1, uint32_t ms2,
              const HeightSample *curve, unsigned count, uint32_t now, uint8_t firstPump = 1,
              bool layered = true) {
